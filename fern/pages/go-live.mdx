@@ -1,0 +1,49 @@
+---
+title: Go-live checklist
+subtitle: Check these before real customers order
+---
+
+Work through this list with LettBestilt before you launch a restaurant's site.
+
+<Warning>
+There is no sandbox and there are no test keys. Every order you create through the API is a real order for the restaurant. Plan your tests with the restaurant. Online orders that are never paid do not reach the kitchen, so you can test checkout up to the payment page without disturbing anyone.
+</Warning>
+
+## Access
+
+- [ ] **The restaurant is live in LettBestilt.** Until it is, every endpoint that takes a slug responds `404 RESTAURANT_NOT_FOUND`, except `GET /site-gate`.
+- [ ] **The API key is on your server only**, in an environment variable. It is not in browser code, a mobile app or a repository.
+- [ ] **Every hostname is verified.** Ask LettBestilt to verify each domain your site runs on, both `example.no` and `www.example.no` if you use both. Browser calls and payment return URLs only work from verified `https` domains.
+- [ ] **All calls go to `https://www.lettbestilt.no/api/v1`.** The bare domain redirects, and the redirect drops the `Authorization` header.
+
+## Checkout
+
+- [ ] **The UI follows `restaurant.capabilities`.** Pickup, delivery, reservations, online payment and cash are only offered when they are `true`.
+- [ ] **Ordering is gated on `restaurant.openingHours`**, the kitchen's hours, not on `venueHours`.
+- [ ] **"Ready in about X minutes" comes from `GET /prep-time`**, so rush mode shows.
+- [ ] **`successUrl` and `cancelUrl` are on a verified domain**, and `successUrl` contains `{TOKEN}`.
+- [ ] **Every checkout attempt has its own `Idempotency-Key`**, and retries reuse it.
+- [ ] **You send `expectedTotal`** and handle `409 PRICE_CHANGED` by showing the new total.
+- [ ] **Your confirmation page checks `order.status`** with `GET /orders/{token}`, and does not treat the return to `successUrl` as proof of payment.
+- [ ] **Your site serves `/order/{publicToken}`.** LettBestilt's order emails link to that path on the restaurant's website domain.
+- [ ] **Stock photos are labelled.** When `product.imageIsStock` is `true`, show "Illustrasjonsfoto" next to the image.
+
+## Webhooks
+
+- [ ] **Your endpoint is public `https`** and registered with LettBestilt for the events you need.
+- [ ] **The signature is verified** over the raw body, and old timestamps are rejected. See [Webhooks](/webhooks).
+- [ ] **You answer `2xx` within 5 seconds** and do slow work afterwards.
+- [ ] **Duplicates are skipped** using `X-LettBestilt-Delivery-Id`.
+
+## Errors and limits
+
+- [ ] **You branch on `error.code`**, and show `error.message` to the customer where it makes sense.
+- [ ] **`429` waits for `Retry-After`**, and network errors retry with the same `Idempotency-Key`.
+- [ ] **A `503` on order creation** lets the customer try again or choose cash.
+- [ ] **The menu is cached on your side** and fetched with `If-None-Match`, so you do not refetch it for every page view.
+- [ ] **You know your rate limits.** Server-side calls share your server's IP, which allows 10 orders per minute per restaurant. See [rate limits](/errors#rate-limits).
+
+## Launch
+
+- [ ] **If the site uses a password gate during preview**, it reads `GET /site-gate` from the server, so LettBestilt can turn the gate off at launch without a redeploy.
+- [ ] **One real order end to end**: menu, cart, payment, confirmation page, status updates and webhooks, agreed with the restaurant.

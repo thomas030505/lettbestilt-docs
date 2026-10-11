@@ -17,6 +17,10 @@ colors:
     light: "#1f3a4a"
     dark: "#9cc3d5"
 
+layout:
+  searchbar-placement: header
+  tabs-placement: header
+
 navbar-links:
   - type: minimal
     text: lettbestilt.no
@@ -25,35 +29,98 @@ navbar-links:
     text: Become a partner
     url: https://www.lettbestilt.no/kontakt
 
+tabs:
+  guides:
+    display-name: Guides
+    icon: book-open
+    skip-slug: true
+  api:
+    display-name: API reference
+    icon: code
+    skip-slug: true
+
 navigation:
-  - section: Get started
-    skip-slug: true
-    contents:
-      - page: Introduction
-        slug: introduction
-        path: ./pages/introduction.mdx
-      - page: Quickstart
-        slug: quickstart
-        path: ./pages/quickstart.mdx
-      - page: Authentication
-        slug: authentication
-        path: ./pages/authentication.mdx
-  - section: Guides
-    skip-slug: true
-    contents:
-      - page: Core concepts
-        slug: concepts
-        path: ./pages/concepts.mdx
-      - page: Payments
-        slug: payments
-        path: ./pages/payments.mdx
-      - page: Webhooks
-        slug: webhooks
-        path: ./pages/webhooks.mdx
-      - page: Errors, rate limits and idempotency
-        slug: errors
-        path: ./pages/errors.mdx
-      - page: Coupons and promotions
-        slug: coupons
-        path: ./pages/coupons.mdx
-  - api: API reference
+  - tab: guides
+    layout:
+      - section: Get started
+        skip-slug: true
+        contents:
+          - page: Introduction
+            slug: introduction
+            path: ./pages/introduction.mdx
+          - page: Quickstart
+            slug: quickstart
+            path: ./pages/quickstart.mdx
+          - page: Authentication
+            slug: authentication
+            path: ./pages/authentication.mdx
+          - page: Core concepts
+            slug: concepts
+            path: ./pages/concepts.mdx
+      - section: Build
+        skip-slug: true
+        contents:
+          - page: Build an ordering flow
+            slug: build-an-ordering-flow
+            path: ./pages/ordering-flow.mdx
+          - page: Payments
+            slug: payments
+            path: ./pages/payments.mdx
+          - page: Coupons and promotions
+            slug: coupons
+            path: ./pages/coupons.mdx
+          - page: Table reservations
+            slug: reservations
+            path: ./pages/reservations.mdx
+          - page: Webhooks
+            slug: webhooks
+            path: ./pages/webhooks.mdx
+      - section: Go live
+        skip-slug: true
+        contents:
+          - page: Errors, rate limits and retries
+            slug: errors
+            path: ./pages/errors.mdx
+          - page: Go-live checklist
+            slug: go-live
+            path: ./pages/go-live.mdx
+  - tab: api
+    layout:
+      - api: API reference
+        layout:
+          - section: Restaurant and menu
+            referenced-packages:
+              - restaurantAndMenu
+            contents:
+              - GET /api/v1/restaurant
+              - GET /api/v1/menu
+              - GET /api/v1/prep-time
+          - section: Orders
+            referenced-packages:
+              - orders
+            contents:
+              - POST /api/v1/orders
+              - GET /api/v1/orders/{token}
+              - GET /api/v1/address-search
+          - section: Reservations
+            referenced-packages:
+              - reservations
+            contents:
+              - GET /api/v1/dine-in/availability
+              - POST /api/v1/reservations
+          - section: Coupons and newsletter
+            referenced-packages:
+              - couponsAndNewsletter
+            contents:
+              - POST /api/v1/coupons/validate
+              - POST /api/v1/coupons/preview-auto
+              - POST /api/v1/newsletter/signup
+          - section: Website
+            referenced-packages:
+              - website
+            contents:
+              - GET /api/v1/site-gate
+          - section: Webhooks
+            referenced-packages:
+              - webhooks
+            contents: []

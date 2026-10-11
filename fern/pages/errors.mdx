@@ -1,6 +1,6 @@
 ---
-title: Errors, rate limits and idempotency
-subtitle: What can go wrong and how to retry safely
+title: Errors, rate limits and retries
+subtitle: What can go wrong, and how to retry safely
 ---
 
 ## Error format
@@ -11,36 +11,55 @@ Errors use one envelope:
 {
   "error": {
     "code": "VALIDATION_FAILED",
-    "message": "Human-readable explanation",
+    "message": "Velg minst 1 fra Saus",
     "details": {}
   }
 }
 ```
 
-Branch on `code`, not on `message`. `details` is optional and only present for some codes.
+Branch on `code`, never on `message`. `message` is written for people and is often in Norwegian; for business rules (sold out, closed, outside the delivery zone) it is usually fine to show the customer as it is. `details` is only present for some codes.
 
-| Code | Typical status | Meaning |
+| Code | Status | Meaning |
 |---|---|---|
-| `MISSING_SLUG` | 400 | The `slug` query parameter is missing |
-| `INVALID_JSON` | 400 | The request body is not valid JSON |
-| `BAD_REQUEST` | 400 | The request is malformed, for example an invalid `Idempotency-Key` |
-| `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | 400 | Return URL is not on a verified domain |
-| `UNAUTHORIZED` | 401 | Missing or wrong API key, and the origin is not verified |
-| `FORBIDDEN` | 403 | Authenticated, but not allowed |
-| `RESTAURANT_NOT_FOUND` / `ORDER_NOT_FOUND` | 404 | Unknown slug or token |
-| `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has both amounts |
-| `IDEMPOTENCY_CONFLICT` | 409 | The same `Idempotency-Key` was used with a different request |
-| `PAYMENT_PENDING` | 409 | The order exists but the payment link is still being created. Retry shortly |
-| `PAYMENT_INCOMPLETE` | 409 | The order exists but has no payment link. Start a new order |
-| `VALIDATION_FAILED` | 422 | The body failed validation. `details` lists the fields |
-| `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY`, `NO_TABLE`, `INVALID_PARTY_SIZE` | 4xx | Reservation-specific rejections |
+| `MISSING_SLUG` | 400 | The `slug` is missing |
+| `MISSING_TOKEN` | 400 | The order token is not in a valid format |
+| `INVALID_JSON` | 400 | The body is not valid JSON |
+| `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | 400 | A return URL is not `https` on a verified domain or lettbestilt.no |
+| `BAD_REQUEST` | 400 | Malformed input, such as an invalid `Idempotency-Key`, or the restaurant is closed or does not offer the chosen fulfillment or payment method |
+| `UNAUTHORIZED` | 401 | Missing or wrong API key, and the origin is not trusted |
+| `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug |
+| `ORDER_NOT_FOUND` | 404 | No order has this token |
+| `POPUP_NOT_AVAILABLE` | 404 | Newsletter signup is turned off for the restaurant |
+| `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has `expectedTotal`, `actualTotal` and `currency` |
+| `PAYMENT_PENDING` | 409 | The order exists but its payment link is still being created. Retry shortly with the same key |
+| `PAYMENT_INCOMPLETE` | 409 | The order exists but never got a payment link. Start a new order |
+| `IDEMPOTENCY_CONFLICT` | 409 | Reservations only: the key was already used with a different body |
+| `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
+| `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |
+| `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY` | 422 | Reservation rejections. See [Table reservations](/reservations) |
 | `RATE_LIMITED` | 429 | Too many requests. See `Retry-After` |
-| `PAYMENT_PROVIDER_INVALID` | 502 | The payment provider returned something unusable |
-| `INTERNAL_ERROR` | 500 | Something broke on our side |
+| `PAYMENT_PROVIDER_INVALID` | 502 | The payment provider returned an unusable payment link |
+| `INTERNAL_ERROR` | 5xx | Something failed on our side or at a provider. `503` on order creation means the payment provider did not answer |
+
+One exception to the envelope: `409 ONLINE_BOOKING_CLOSED` from `POST /reservations` uses a flat shape, `{ "error": "…", "code": "ONLINE_BOOKING_CLOSED" }`.
 
 ## Rate limits
 
-Limits are applied per restaurant and client IP. Responses from rate-limited endpoints include:
+Limits are counted per client IP, and for most endpoints per restaurant as well:
+
+| Endpoint | Limit |
+|---|---|
+| `POST /orders` | 10 per minute per slug and IP |
+| `POST /reservations` | 20 per minute per slug and IP |
+| `POST /coupons/validate`, `POST /coupons/preview-auto` | 30 per minute per slug and IP |
+| `POST /newsletter/signup` | 5 per minute per IP, and 200 per hour per restaurant |
+| `GET /dine-in/availability` | 60 per minute per slug and IP |
+| `GET /address-search` | 30 per minute per IP |
+| `GET /orders/{token}` | 60 per minute per IP, and 30 per minute per token |
+| `GET /prep-time`, `GET /site-gate` | 600 per minute per slug and IP |
+| `GET /menu`, `GET /restaurant` | No limit; responses are cached at the edge |
+
+Rate-limited responses include these headers:
 
 | Header | Meaning |
 |---|---|
@@ -49,12 +68,30 @@ Limits are applied per restaurant and client IP. Responses from rate-limited end
 | `X-RateLimit-Reset` | Unix time in seconds when the window resets |
 | `Retry-After` | Seconds to wait (only on `429`) |
 
-Creating orders is the strictest limit (10 per minute per restaurant and IP). Read the headers rather than hard-coding limits, as they may change.
+<Warning>
+When you call the API from your server, every customer shares your server's IP. `POST /orders` then allows 10 orders per minute per restaurant from that server. Calls from the browser on a verified domain are counted per customer instead. Talk to LettBestilt if you expect more traffic than the limits allow.
+</Warning>
+
+Read the headers rather than hard-coding the numbers; they may change.
 
 ## Idempotency
 
-`POST /orders` and `POST /reservations` accept an `Idempotency-Key` header: 16 to 128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`). A UUID works well.
+`POST /orders` and `POST /reservations` accept an `Idempotency-Key` header: 16 to 128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`). A UUID works well. Keys are scoped per restaurant.
 
-- Sending the same key with the same body returns the original order instead of creating a new one. Retry network failures with the same key.
-- Sending the same key with a **different** body returns `409 IDEMPOTENCY_CONFLICT`.
-- Keys are scoped per restaurant.
+| | `POST /orders` | `POST /reservations` |
+|---|---|---|
+| Same key, same body | Returns the original order and payment link | Returns the original request (`200`, `idempotent: true`) |
+| Same key, different body | Returns the original order. The body is **not** compared | `409 IDEMPOTENCY_CONFLICT` |
+
+Create one key per checkout attempt, store it with the attempt, and reuse it only to retry that attempt.
+
+## When to retry
+
+| Situation | Retry? |
+|---|---|
+| Network error or timeout on `POST /orders` or `POST /reservations` | Yes, with the same `Idempotency-Key` |
+| `409 PAYMENT_PENDING` | Yes, after a couple of seconds, with the same key |
+| `429 RATE_LIMITED` | Yes, after `Retry-After` seconds |
+| `503` on `POST /orders` | Only as a new attempt with a new key; the first order has no payment link |
+| `500` | Yes, with backoff. On `POST /orders` and `POST /reservations`, reuse the same key. Contact LettBestilt if it persists |
+| `400`, `401`, `404`, `422`, other `409` | No. Change the request first |

@@ -1,48 +1,78 @@
 ---
 title: Webhooks
-subtitle: Get notified when orders and reservations change
+subtitle: Signed events when orders and reservations change
 ---
 
-LettBestilt sends an HTTPS `POST` to your endpoint when something happens to a restaurant's orders or reservations. Webhooks are registered per restaurant; ask LettBestilt to register your URL. You receive a signing secret (starting with `whsec_`) once, when the webhook is created.
+LettBestilt sends an HTTPS `POST` to your endpoint when something happens to a restaurant's orders or reservations. Use webhooks for your own systems, such as a back office, a CRM or notifications, instead of polling.
+
+## Getting a subscription
+
+Webhooks are set up per restaurant by LettBestilt. Tell us:
+
+- the URL. It must be a public `https://` address.
+- which events you want.
+
+You then receive a signing secret, starting with `whsec_`. It is shown only once, so store it as a secret on your server.
 
 ## Events
 
 | Event | When |
 |---|---|
-| `ORDER_CREATED` | A new order is placed |
-| `ORDER_PAID` | Online payment is confirmed |
-| `ORDER_STATUS_CHANGED` | The kitchen moves the order to a new status |
-| `ORDER_CANCELLED` | The order is cancelled |
-| `RESERVATION_REQUESTED` | A guest requests a table |
-| `RESERVATION_APPROVED` | The restaurant approves a reservation |
-| `RESERVATION_REJECTED` | The restaurant rejects a reservation |
+| [`ORDER_CREATED`](/api-reference/webhooks/order-created) | A new order is created. Online orders arrive as `AWAITING_PAYMENT`, cash orders as `CONFIRMED` |
+| [`ORDER_PAID`](/api-reference/webhooks/order-paid) | The online payment is confirmed, and the order goes to the kitchen |
+| [`ORDER_STATUS_CHANGED`](/api-reference/webhooks/order-status-changed) | The restaurant moves the order to a new status |
+| [`ORDER_CANCELLED`](/api-reference/webhooks/order-cancelled) | The restaurant cancels the order |
+| [`RESERVATION_REQUESTED`](/api-reference/webhooks/reservation-requested) | A guest requests a table |
+| [`RESERVATION_APPROVED`](/api-reference/webhooks/reservation-approved) | The restaurant approves the request and assigns a table |
+| [`RESERVATION_REJECTED`](/api-reference/webhooks/reservation-rejected) | The restaurant rejects the request |
+
+There is no event for a payment that fails or is abandoned. Such an order never gets `ORDER_PAID`.
 
 ## Payload
 
+Every event has the same envelope:
+
 ```json
 {
-  "event": "ORDER_CREATED",
-  "createdAt": "2026-10-11T16:30:00.000Z",
-  "data": { }
+  "event": "ORDER_STATUS_CHANGED",
+  "createdAt": "2026-10-16T15:20:05.000Z",
+  "data": {
+    "orderId": "cm2ord0001abcdefghijklmn",
+    "orderNumber": 1042,
+    "publicToken": "cm2tok0001abcdefghijklmn",
+    "previousStatus": "PREPARING",
+    "status": "READY_FOR_PICKUP"
+  }
 }
 ```
 
-`data` holds the order or reservation. `ORDER_CREATED` includes `estimatedReadyAt` and `requestedPickupAt` as ISO 8601 UTC.
+`data` always has `orderId`, `orderNumber` and `publicToken`. The rest depends on the event:
+
+| Event | Also in `data` |
+|---|---|
+| `ORDER_CREATED` | `status`, `total`, `fulfillment`, `paymentMethod`, `estimatedReadyAt`, `requestedPickupAt` |
+| `ORDER_PAID` | `status` (`PAID`), `total` |
+| `ORDER_STATUS_CHANGED`, `ORDER_CANCELLED` | `previousStatus`, `status` |
+| `RESERVATION_REQUESTED` | `dineInAt`, `partySize` |
+| `RESERVATION_APPROVED` | `dineInAt`, `partySize`, `tableId` |
+| `RESERVATION_REJECTED` | `reason` (or `null`) |
+
+Times are ISO 8601 in UTC. For reservations, `orderId` is the same value as `reservationId` from `POST /reservations`. Need more than the payload? Fetch the order with `GET /orders/{publicToken}`.
 
 ## Headers
 
 | Header | Meaning |
 |---|---|
 | `X-LettBestilt-Webhook-Id` | The webhook subscription |
-| `X-LettBestilt-Delivery-Id` | Stable per event. Retries of the same event carry the same ID, so use it to deduplicate |
+| `X-LettBestilt-Delivery-Id` | Stable per event. Retries of the same event carry the same ID |
 | `X-LettBestilt-Webhook-Timestamp` | Unix time in seconds when this attempt was signed |
 | `X-LettBestilt-Webhook-Signature` | `sha256=` followed by the hex HMAC |
 
 ## Verify the signature
 
-The signature is an HMAC-SHA256 of `{timestamp}.{raw body}`, keyed with your signing secret. Always verify it before you trust the payload, and compute it over the **raw** request body, not re-serialized JSON.
+The signature is an HMAC-SHA256 of `{timestamp}.{raw body}`, keyed with your signing secret and hex-encoded. Verify it before you trust the payload, and compute it over the **raw** request body, not over JSON you have parsed and serialized again.
 
-```ts
+```typescript title="verify.ts"
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export function verifyLettBestiltWebhook(
@@ -65,9 +95,36 @@ export function verifyLettBestiltWebhook(
 }
 ```
 
+A complete handler, for example a Next.js route:
+
+```typescript title="app/api/lettbestilt-webhook/route.ts"
+import { verifyLettBestiltWebhook } from "./verify";
+
+export async function POST(request: Request) {
+  const rawBody = await request.text();
+  const ok = verifyLettBestiltWebhook(
+    rawBody,
+    request.headers.get("x-lettbestilt-webhook-timestamp") ?? "",
+    request.headers.get("x-lettbestilt-webhook-signature") ?? "",
+    process.env.LETTBESTILT_WEBHOOK_SECRET!,
+  );
+  if (!ok) return new Response("invalid signature", { status: 401 });
+
+  const deliveryId = request.headers.get("x-lettbestilt-delivery-id")!;
+  if (await alreadyHandled(deliveryId)) return new Response(null, { status: 204 });
+
+  const { event, createdAt, data } = JSON.parse(rawBody);
+  await enqueue({ deliveryId, event, createdAt, data }); // do the real work later
+  return new Response(null, { status: 204 });
+}
+```
+
+Answering `401` to a bad signature stops retries for that delivery, which is what you want.
+
 ## Delivery and retries
 
-- Respond with any `2xx` within 5 seconds. Do heavy work after you respond.
-- `5xx`, timeouts, `408` and `429` are retried after 1 min, 5 min, 15 min, 1 h, 4 h and 12 h. After 6 failed attempts the delivery is marked as failed.
-- Other `4xx` responses are treated as permanent and not retried.
-- Deliveries can arrive more than once and out of order. Deduplicate on `X-LettBestilt-Delivery-Id`, and use `createdAt` to order events.
+- Respond with any `2xx` within **5 seconds**. Do slow work after you respond.
+- Redirects are not followed. Answer from the URL you registered.
+- `5xx`, `408`, `429`, redirects, timeouts and network errors count as temporary. LettBestilt tries up to **6 times** in total: right away, then about 1 minute, 15 minutes, 1 hour, 4 hours and 12 hours after the previous attempt. After the sixth failure the delivery is given up.
+- Any other `4xx` is treated as permanent, and the delivery is not retried.
+- Deliveries can arrive more than once and out of order. Skip `X-LettBestilt-Delivery-Id` values you have already handled, and use `createdAt` to order events.

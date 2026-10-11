@@ -3,7 +3,7 @@ title: Authentication
 subtitle: API keys for servers, verified domains for browsers
 ---
 
-Every endpoint except order tracking needs one of two kinds of authentication.
+Every endpoint except order tracking needs one of two kinds of authentication: an API key, or a request from a trusted browser origin.
 
 ## API key (server to server)
 
@@ -13,35 +13,39 @@ Send the restaurant's API key as a bearer token:
 Authorization: Bearer lbs_...
 ```
 
-- Keys are issued **per restaurant** and start with `lbs_`.
-- The full key is shown only once, when it is created or rotated. LettBestilt stores only a hash.
-- Rotating a key invalidates the old one immediately, so deploy the new key before you rotate in production.
-- Use the key from your **server** for all calls, including reading the menu.
+- Keys are issued **per restaurant** by LettBestilt and start with `lbs_`.
+- The full key is shown only once. LettBestilt stores only a hash and cannot show it again.
+- When a key is rotated, the old one stops working immediately. Agree on a time with LettBestilt and deploy the new key right after.
+- If a request has an `Authorization` header, the key is always checked. A wrong key fails with `401`, even from a trusted origin.
 
 <Warning>
-Never put an API key in browser code. Anything in a client bundle is public.
+Use the key only from your server. Never put it in browser code, a mobile app or a public repository.
 </Warning>
 
-## Verified domain (browser)
+## Trusted browser origin
 
-If your site needs to call the API directly from the browser (for example to validate a coupon as the customer types), the request can be authenticated by its `Origin` instead of a key.
+When your site calls the API directly from the browser, for example to validate a coupon as the customer types, the request is authenticated by its `Origin` header instead of a key. Browsers set `Origin` themselves; there is nothing to configure in your code.
 
-This works when the `Origin` header is one of:
+An origin is trusted for a restaurant when it is:
 
-- the restaurant's own LettBestilt subdomain, `https://{slug}.lettbestilt.no`
-- a **verified custom domain** registered for that restaurant, for example `https://www.pizzaroma.no`
+- the restaurant's LettBestilt subdomain, `https://{slug}.lettbestilt.no`
+- one of the restaurant's **verified domains**, for example `https://www.pizzaroma.no`
 
-Browsers set `Origin` automatically; you do not configure anything in your code. Ask LettBestilt to verify each domain your site runs on (both the bare domain and `www` if you use both). Only `https` origins are accepted.
+Ask LettBestilt to verify every hostname your site runs on. `pizzaroma.no` and `www.pizzaroma.no` are two different origins, so verify both if you use both. Only `https` origins are accepted.
 
 A verified domain also:
 
-- allows the domain through CORS
-- allows it as `successUrl` and `cancelUrl` when creating orders
+- allows the domain through CORS (`Content-Type`, `Authorization` and `Idempotency-Key` are allowed request headers)
+- allows it as `successUrl` and `cancelUrl` when you create orders
 
 ## Which endpoints need what
 
-| Endpoint | Auth |
+| Endpoint | Authentication |
 |---|---|
 | `GET /orders/{token}` | None. The token is the secret |
-| `GET /site-gate` | API key only |
-| Everything else | API key **or** verified domain |
+| `GET /site-gate` | API key only. Browser origins are rejected |
+| Everything else | API key **or** trusted browser origin |
+
+## When authentication fails
+
+The response is `401 UNAUTHORIZED`. `error.message` tells you why: a missing key, a wrong key, or an origin that is not trusted for this slug. See [Errors](/errors) for the envelope.

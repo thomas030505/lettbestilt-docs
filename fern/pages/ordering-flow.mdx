@@ -1,0 +1,214 @@
+---
+title: Build an ordering flow
+subtitle: From menu to paid order, tracking and webhooks
+---
+
+This guide walks through a complete takeaway checkout on your own site. The examples call the API from your server with the API key. Endpoints marked as browser-friendly in [Authentication](/authentication) can also be called from the browser on a verified domain.
+
+```typescript title="Shared setup (TypeScript)"
+const API = "https://www.lettbestilt.no/api/v1";
+const SLUG = "pizzaroma";
+const headers = {
+  Authorization: `Bearer ${process.env.LETTBESTILT_API_KEY}`,
+  "Content-Type": "application/json",
+};
+```
+
+<Steps>
+
+### Load the menu
+
+Fetch `GET /menu` on your server and cache it briefly. It is cached at the edge for about 30 seconds anyway, and it supports `If-None-Match`.
+
+<CodeBlocks>
+```bash title="cURL"
+curl "https://www.lettbestilt.no/api/v1/menu?slug=pizzaroma" \
+  -H "Authorization: Bearer $LETTBESTILT_API_KEY"
+```
+
+```typescript title="TypeScript"
+const menu = await fetch(`${API}/menu?slug=${SLUG}`, { headers }).then((r) => r.json());
+const { capabilities, openingHours } = menu.restaurant;
+```
+</CodeBlocks>
+
+Before you show an order button, check:
+
+- `restaurant.capabilities`: offer only pickup, delivery and payment methods that are `true`.
+- `restaurant.openingHours`: the kitchen's hours, in Oslo time. Outside them, the server rejects orders (unless the customer picks a later time with `requestedPickupAt`).
+- `GET /prep-time`: the live "ready in about X minutes", including rush.
+
+`categories` only contains menus that are active right now, and products that are hidden or sold out are left out. A product that is not in the menu cannot be ordered.
+
+### Build the cart
+
+Each cart line is a product, an optional variant, optional add-ons and a quantity. Calculate the price you display like this; the server does the same calculation when the order is created.
+
+- **Unit price**: the chosen variant's `price` if the product has variants, otherwise `basePrice`.
+- **Add-ons**: the groups that apply to a product are `product.addonGroups`, the category's `addonGroups` and the shared `restaurant.addonGroups`. The customer must pick between `minSelect` and `maxSelect` in each group. An add-on costs `tierPrices[variant.addonTierKey]` if that exists, otherwise `price`.
+- **Line total**: `(unit price + add-ons) × quantity`.
+- **Combo deals** (`isCombo: true`): the price is `basePrice` plus add-ons. The customer fills each of `comboSlots` with `minQty`–`maxQty` products from `allowedProductIds`; send them as `comboSelections`.
+- **Pickup or delivery only**: hide or disable products whose `allowedFulfillment` does not match the customer's choice. `null` means both.
+
+```typescript title="Line price (TypeScript)"
+function linePrice(product, variant, addons, quantity) {
+  const unit = variant ? variant.price : product.basePrice;
+  const tier = variant?.addonTierKey;
+  const addonsTotal = addons.reduce(
+    (sum, addon) => sum + (tier && addon.tierPrices[tier] !== undefined ? addon.tierPrices[tier] : addon.price),
+    0,
+  );
+  return (unit + addonsTotal) * quantity;
+}
+```
+
+### Find the delivery address
+
+For delivery, let the customer search for the address and send what you get back with the order:
+
+<CodeBlocks>
+```bash title="cURL"
+curl "https://www.lettbestilt.no/api/v1/address-search?slug=pizzaroma&q=Storgata%201" \
+  -H "Authorization: Bearer $LETTBESTILT_API_KEY"
+```
+
+```typescript title="TypeScript"
+const { hits } = await fetch(
+  `${API}/address-search?slug=${SLUG}&q=${encodeURIComponent("Storgata 1")}`,
+  { headers },
+).then((r) => r.json());
+// hits[0]: { label, street, postalCode, city, lat, lng }
+```
+</CodeBlocks>
+
+Send `lat`/`lng` as `deliveryLat`/`deliveryLng` and the postal code as `deliveryPostalCode`. Radius-based delivery zones need the coordinates; postal-code zones need the postal code. The zone decides the delivery fee and minimum order; you find the zones in `restaurant.deliveryZones` in the menu.
+
+### Show discounts
+
+An order gets **either** the coupon code the customer typed **or** the best automatic promotion, never both.
+
+- No code: call `POST /coupons/preview-auto` with the cart to show the automatic promotion.
+- Code typed: call `POST /coupons/validate`, and send the code as `couponCode` when you create the order.
+
+Both are for display; the server calculates the discount again when the order is created. Details in [Coupons and promotions](/coupons).
+
+### Create the order
+
+Send the cart to `POST /orders`. Three things make this step safe:
+
+- **`Idempotency-Key`**: create one key per checkout attempt and reuse it when you retry after a timeout or network error. A replay returns the same order instead of a second one.
+- **`expectedTotal`**: the total you showed the customer. If the server's total is higher, you get `409 PRICE_CHANGED` and no order is created.
+- **`successUrl` with `{TOKEN}`**: LettBestilt replaces `{TOKEN}` with the order's `publicToken` when the customer returns from payment.
+
+<CodeBlocks>
+```bash title="cURL"
+curl -X POST "https://www.lettbestilt.no/api/v1/orders?slug=pizzaroma&successUrl=https%3A%2F%2Fwww.pizzaroma.no%2Forder%2F%7BTOKEN%7D&cancelUrl=https%3A%2F%2Fwww.pizzaroma.no%2Fcheckout" \
+  -H "Authorization: Bearer $LETTBESTILT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3f6c2b8e-6c1d-4a51-9a63-2f0d5c7e9b14" \
+  -d '{
+    "items": [
+      { "productId": "PRODUCT_ID", "variantId": "VARIANT_ID", "addonIds": [], "quantity": 2 }
+    ],
+    "fulfillment": "PICKUP",
+    "customerName": "Kari Nordmann",
+    "customerEmail": "kari@example.com",
+    "customerPhone": "+4799999999",
+    "paymentMethod": "STRIPE",
+    "expectedTotal": 33800,
+    "locale": "nb"
+  }'
+```
+
+```typescript title="TypeScript"
+const idempotencyKey = crypto.randomUUID(); // store it with the checkout attempt
+
+const params = new URLSearchParams({
+  slug: SLUG,
+  successUrl: "https://www.pizzaroma.no/order/{TOKEN}",
+  cancelUrl: "https://www.pizzaroma.no/checkout",
+});
+
+const res = await fetch(`${API}/orders?${params}`, {
+  method: "POST",
+  headers: { ...headers, "Idempotency-Key": idempotencyKey },
+  body: JSON.stringify({
+    items: [{ productId: "PRODUCT_ID", variantId: "VARIANT_ID", addonIds: [], quantity: 2 }],
+    fulfillment: "PICKUP",
+    customerName: "Kari Nordmann",
+    customerEmail: "kari@example.com",
+    customerPhone: "+4799999999",
+    paymentMethod: "STRIPE", // online payment. "CASH" = pay at pickup or delivery
+    expectedTotal: 33800,
+    locale: "nb",
+  }),
+});
+
+const body = await res.json();
+if (!res.ok) {
+  // see "Handle errors" below
+  throw new Error(`${body.error.code}: ${body.error.message}`);
+}
+// body: { orderId, publicToken, totals, stripeUrl? }
+```
+</CodeBlocks>
+
+The response has `totals` (`subtotal`, `deliveryFee`, `discount`, `total`, `currency`). They are the amounts the customer pays.
+
+### Send the customer to payment
+
+- **Online** (`paymentMethod: "STRIPE"`): redirect the customer to `stripeUrl`, SagaPay's hosted payment page. The customer chooses card, Vipps or another method there, and comes back to your `successUrl`. The name `stripeUrl` is historical.
+- **Cash** (`paymentMethod: "CASH"`): there is no `stripeUrl`. The order is already confirmed and on its way to the kitchen, so show your confirmation page right away.
+
+```typescript title="TypeScript"
+if (body.stripeUrl) {
+  return Response.redirect(body.stripeUrl, 303);
+}
+return Response.redirect(`https://www.pizzaroma.no/order/${body.publicToken}`, 303);
+```
+
+More in [Payments](/payments).
+
+### Show the order and its status
+
+Your confirmation page gets the `publicToken` from the URL. Fetch the order with it; no API key is needed:
+
+<CodeBlocks>
+```bash title="cURL"
+curl "https://www.lettbestilt.no/api/v1/orders/ORDER_PUBLIC_TOKEN"
+```
+
+```typescript title="TypeScript"
+const { order } = await fetch(`${API}/orders/${publicToken}`).then((r) => r.json());
+// order.status, order.estimatedReadyAt, order.requestedPickupAt, order.items, order.total ...
+```
+</CodeBlocks>
+
+Do not treat the redirect to `successUrl` as proof of payment. Check `order.status` instead: while an online order is `AWAITING_PAYMENT`, the server asks the payment provider for the latest status on every call, so poll every few seconds until it changes. Then poll every 15–30 seconds to show progress: `PAID` → `CONFIRMED` → `PREPARING` → `READY_FOR_PICKUP` or `OUT_FOR_DELIVERY` → `COMPLETED`. Stop polling at `COMPLETED`, `CANCELLED` or `FAILED`.
+
+If `pickupTimeRevisedAt` is set, the restaurant has moved the time. Tell the customer instead of changing the time silently.
+
+<Note>
+LettBestilt's emails to the customer link to `/order/{publicToken}` on the restaurant's website domain. If that domain is your site, serve the order page at exactly that path.
+</Note>
+
+### Listen for webhooks
+
+For your own systems (a back office, a CRM, notifications), subscribe to `ORDER_CREATED`, `ORDER_PAID`, `ORDER_STATUS_CHANGED` and `ORDER_CANCELLED` instead of polling. See [Webhooks](/webhooks).
+
+</Steps>
+
+## Handle errors
+
+| Response | What to do |
+|---|---|
+| `409 PRICE_CHANGED` | Fetch the menu again, show the new total and let the customer confirm. Then create the order with a **new** `Idempotency-Key` |
+| `409 PAYMENT_PENDING` | Wait a couple of seconds and retry with the **same** key |
+| `409 PAYMENT_INCOMPLETE` | The payment link was never created. Start over with a new key |
+| `422 VALIDATION_FAILED` / `FULFILLMENT_NOT_ALLOWED` | Show `error.message` (Norwegian). The cart or customer details need to change |
+| `400 BAD_REQUEST` | The restaurant is closed at that time, or does not offer the chosen fulfillment or payment method. Show `error.message` |
+| `429 RATE_LIMITED` | Wait for `Retry-After` seconds |
+| `503 INTERNAL_ERROR` | The payment provider did not answer. Offer to try again with a new key, or to pay in cash |
+| Network error or timeout | Retry with the **same** key |
+
+The full list is in [Errors, rate limits and retries](/errors).

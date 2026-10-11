@@ -1,0 +1,111 @@
+---
+title: Table reservations
+subtitle: Show available times, send a request, follow the answer
+---
+
+Table reservations on LettBestilt are **requests**. The guest picks a time on your site, the restaurant approves or rejects the request in its dashboard, and the guest gets an email either way. A reservation is not an order: it has no food and no payment.
+
+Check `restaurant.capabilities.reservations` before you show a booking form. The TypeScript examples use `API`, `SLUG` and `headers` from the [shared setup](/build-an-ordering-flow).
+
+<Steps>
+
+### Show available times
+
+Ask for one date (Oslo time) and party size:
+
+<CodeBlocks>
+```bash title="cURL"
+curl "https://www.lettbestilt.no/api/v1/dine-in/availability?slug=pizzaroma&date=2026-10-16&partySize=4" \
+  -H "Authorization: Bearer $LETTBESTILT_API_KEY"
+```
+
+```typescript title="TypeScript"
+const availability = await fetch(
+  `${API}/dine-in/availability?slug=${SLUG}&date=2026-10-16&partySize=4`,
+  { headers },
+).then((r) => r.json());
+
+if (!availability.enabled) {
+  // The restaurant does not take reservations: hide the form.
+}
+const times = availability.slots.filter((slot) => slot.available);
+```
+</CodeBlocks>
+
+```json title="Response"
+{
+  "enabled": true,
+  "maxPartySize": 8,
+  "slots": [
+    { "time": "17:00", "iso": "2026-10-16T15:00:00.000Z", "available": true },
+    { "time": "17:15", "iso": "2026-10-16T15:15:00.000Z", "available": false }
+  ]
+}
+```
+
+Slots are 15 minutes apart. Show `time` to the guest and keep `iso` for the request. `available: false` means no table fits the party at that time. Times outside opening hours, inside the restaurant's minimum notice, or after the restaurant has closed online booking are left out. A party larger than `maxPartySize` gets no slots, so ask the guest to call instead.
+
+### Send the request
+
+<CodeBlocks>
+```bash title="cURL"
+curl -X POST "https://www.lettbestilt.no/api/v1/reservations?slug=pizzaroma" \
+  -H "Authorization: Bearer $LETTBESTILT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 9b1c0e7a-3d4f-4f6e-8a2b-5c6d7e8f9a0b" \
+  -d '{
+    "dineInAt": "2026-10-16T15:00:00.000Z",
+    "partySize": 4,
+    "guestName": "Kari Nordmann",
+    "guestEmail": "kari@example.com",
+    "guestPhone": "+4799999999",
+    "note": "En barnestol, takk",
+    "locale": "nb"
+  }'
+```
+
+```typescript title="TypeScript"
+const res = await fetch(`${API}/reservations?slug=${SLUG}`, {
+  method: "POST",
+  headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+  body: JSON.stringify({
+    dineInAt: slot.iso,
+    partySize: 4,
+    guestName: "Kari Nordmann",
+    guestEmail: "kari@example.com",
+    guestPhone: "+4799999999",
+    note: "En barnestol, takk",
+    locale: "nb",
+  }),
+});
+const reservation = await res.json();
+// { reservationId, publicToken, orderNumber, status: "PENDING_APPROVAL", dineInAt, partySize, tableId: null }
+```
+</CodeBlocks>
+
+The response is `201` with `status: "PENDING_APPROVAL"`. Tell the guest that the restaurant will confirm by email. Always send `guestEmail` if you can: without it, the guest cannot be told the answer.
+
+The server checks the party size, the minimum notice and whether online booking is open, but not the time against existing bookings. Only offer times from the availability endpoint.
+
+### Follow the answer
+
+The restaurant approves (and assigns a table) or rejects the request. You can follow it in two ways:
+
+- **Poll** `GET /orders/{publicToken}`. The status is `PENDING_APPROVAL`, then `CONFIRMED` or `CANCELLED`.
+- **Webhooks**: `RESERVATION_REQUESTED` when the request is created, then `RESERVATION_APPROVED` (with `tableId`) or `RESERVATION_REJECTED` (with the restaurant's `reason`, if any). Webhooks call the reservation's ID `orderId`; it is the same value as `reservationId`. See [Webhooks](/webhooks).
+
+</Steps>
+
+## Errors
+
+| Response | Meaning |
+|---|---|
+| `422 DINE_IN_DISABLED` | The restaurant does not take reservations, or has no tables that can be booked online |
+| `422 PARTY_TOO_LARGE` | More guests than the restaurant takes online |
+| `422 TOO_EARLY` | The time is inside the restaurant's minimum notice |
+| `422 VALIDATION_FAILED` | The body failed validation; `error.details.issues` lists the fields |
+| `409 ONLINE_BOOKING_CLOSED` | The restaurant has closed online booking for that date or time. This error uses an older, flat shape: `{ "error": "…", "code": "ONLINE_BOOKING_CLOSED" }` |
+| `409 IDEMPOTENCY_CONFLICT` | The `Idempotency-Key` was already used with a different body |
+| `429 RATE_LIMITED` | More than 20 requests in 60 seconds for this slug and IP |
+
+Retrying with the same `Idempotency-Key` and body returns the existing request with status `200` and `idempotent: true`, so a network error never creates two requests.

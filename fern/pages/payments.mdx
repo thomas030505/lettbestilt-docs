@@ -3,27 +3,44 @@ title: Payments
 subtitle: Online payment through a hosted page, or cash
 ---
 
-Check `restaurant.capabilities.payment` to see what the restaurant accepts.
+LettBestilt never asks your site to handle card details. Online payments happen on SagaPay's hosted payment page; cash is paid at pickup or delivery. Check `restaurant.capabilities.payment` to see what the restaurant accepts.
 
 ## Online payment
 
-Create the order with `paymentMethod: "STRIPE"`. The response includes `stripeUrl`, a hosted payment page run by SagaPay. The customer chooses the method there: card, Vipps, and any other method the restaurant has enabled with SagaPay, such as Klarna.
+Create the order with `paymentMethod: "STRIPE"`. The response includes `stripeUrl`, the hosted payment page. The customer chooses the method there: card, Vipps, or another method the restaurant has enabled with SagaPay, such as Klarna.
 
 1. Create the order with `successUrl` and `cancelUrl`.
 2. Redirect the customer to `stripeUrl`.
 3. After payment, the customer returns to `successUrl`. Put `{TOKEN}` in the URL to get the order's `publicToken` back.
-4. If the customer cancels, they return to `cancelUrl`.
-
-The order counts as paid when LettBestilt receives the payment confirmation. Do not treat the redirect to `successUrl` alone as proof of payment. Check the order status, or listen for the `ORDER_PAID` [webhook](/webhooks).
+4. If the customer cancels, or the payment fails, they return to `cancelUrl`.
 
 <Note>
-`stripeUrl` is a historical name. Payments run through SagaPay, and Vipps is chosen inside the hosted page. Do not use the legacy `vippsUrl` field in new integrations.
+`stripeUrl` is a historical name. Payments run through SagaPay, and Vipps is chosen inside the hosted page. Do not use `paymentMethod: "VIPPS"` or the `vippsUrl` field in new integrations; they exist only for old direct-Vipps clients.
 </Note>
+
+## Confirming the payment
+
+The order counts as paid when LettBestilt receives the confirmation from SagaPay. The redirect to `successUrl` alone is not proof of payment.
+
+- **On your confirmation page**, call `GET /orders/{token}`. While the order is `AWAITING_PAYMENT`, the server checks with SagaPay on every call, so poll every few seconds until the status is `PAID` (or `FAILED`).
+- **In your back end**, listen for the `ORDER_PAID` [webhook](/webhooks).
+
+An online order reaches the kitchen only when it is paid. If the customer never pays, the order stays `AWAITING_PAYMENT` and no further webhook is sent. If the payment fails, the status becomes `FAILED`.
 
 ## Cash
 
-With `paymentMethod: "CASH"` there is no payment link. Show a confirmation right away; the customer pays at pickup or delivery.
+With `paymentMethod: "CASH"` there is no payment link. The order is `CONFIRMED` at once and goes to the kitchen. Show a confirmation page right away; the customer pays at pickup or delivery.
 
 ## Return URLs
 
-`successUrl` and `cancelUrl` must point to the restaurant's verified domain or to LettBestilt. Other domains are rejected with `INVALID_SUCCESS_URL` or `INVALID_CANCEL_URL`.
+`successUrl` and `cancelUrl` are query parameters on `POST /orders`.
+
+- They must be `https` on a verified domain or on lettbestilt.no. Other URLs are rejected with `400 INVALID_SUCCESS_URL` or `400 INVALID_CANCEL_URL`.
+- If you leave out `successUrl`, the customer returns to `/order/{TOKEN}?payment=success` on the restaurant's website domain (or on `{slug}.lettbestilt.no`).
+- If you leave out `cancelUrl`, the customer returns to the front page of the restaurant's website domain, or to checkout on `{slug}.lettbestilt.no`.
+
+Pass your own URLs so you control where the customer lands.
+
+## When the payment provider is down
+
+If SagaPay does not respond when the order is created, you get `503 INTERNAL_ERROR`. The order was saved, but it has no payment link and will never be paid. Let the customer try again (with a new `Idempotency-Key`), or offer cash if the restaurant accepts it.

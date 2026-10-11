@@ -1,21 +1,90 @@
 ---
 title: Coupons and promotions
-subtitle: Validate codes and preview automatic discounts
+subtitle: Show discounts in the cart before checkout
 ---
 
-## Validate a coupon code
+Restaurants have two kinds of offers:
 
-`POST /coupons/validate` checks a code against the current cart. It always responds with `200`; read `valid` in the body.
+- **Coupon codes** that the customer types, listed in `coupons` in `GET /menu`.
+- **Automatic promotions** that need no code, listed in `promotions` in `GET /menu`. Show them as banners.
 
-```json
-{ "valid": true, "discount": 5000, "coupon": { } }
+Neither list includes the code itself. An order gets **either** the code the customer typed **or** the best automatic promotion, never both. The server always calculates the final discount when the order is created; the endpoints below are for showing it in the cart.
+
+The TypeScript examples use `API`, `SLUG` and `headers` from the [shared setup](/build-an-ordering-flow).
+
+## Send the cart
+
+Both endpoints take the restaurant's `slug` in the JSON body, the `subtotal` in øre and the cart lines. Send the same cart you will order:
+
+| Field | Why |
+|---|---|
+| `cart[].productId`, `categoryId`, `lineTotal`, `quantity` | Offers can be limited to products or categories, and "X for Y kr" offers count units. `categoryId` is required for validate and optional for preview-auto |
+| `cart[].variantName` | Needed for offers with a price per size, such as `Medium` or `Stor` |
+| `fulfillment`, `deliveryFee` | Offers can be limited to pickup or delivery, or give free delivery |
+| `requestedPickupAt` | Day and time rules are checked against the pickup time for a pre-order. Send the same value as on the order, or the cart can show a discount the order rejects |
+
+## Preview the automatic promotion
+
+<CodeBlocks>
+```bash title="cURL"
+curl -X POST "https://www.lettbestilt.no/api/v1/coupons/preview-auto" \
+  -H "Authorization: Bearer $LETTBESTILT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "pizzaroma",
+    "subtotal": 36800,
+    "fulfillment": "PICKUP",
+    "cart": [{ "productId": "PRODUCT_ID", "quantity": 2, "variantName": "Stor", "lineTotal": 36800 }]
+  }'
 ```
 
-```json
-{ "valid": false, "discount": 0, "reason": "MINIMUM_NOT_MET" }
+```typescript title="TypeScript"
+const preview = await fetch(`${API}/coupons/preview-auto`, {
+  method: "POST",
+  headers,
+  body: JSON.stringify({ slug: SLUG, subtotal, fulfillment, cart }),
+}).then((r) => r.json());
+
+if (preview.applies) {
+  showDiscountLine(preview.coupon.displayName, preview.discount);
+}
+```
+</CodeBlocks>
+
+The response is `{ "applies": true, "discount": 6900, "coupon": { ... } }`, or `{ "applies": false, "discount": 0 }` when no promotion matches.
+
+## Validate a code
+
+<CodeBlocks>
+```bash title="cURL"
+curl -X POST "https://www.lettbestilt.no/api/v1/coupons/validate" \
+  -H "Authorization: Bearer $LETTBESTILT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "pizzaroma",
+    "code": "VELKOMMEN",
+    "subtotal": 33800,
+    "cart": [{ "productId": "PRODUCT_ID", "categoryId": "CATEGORY_ID", "quantity": 2, "lineTotal": 33800 }],
+    "email": "kari@example.com"
+  }'
 ```
 
-The final discount is always recalculated when the order is created. Pass the code as `couponCode` on `POST /orders`.
+```typescript title="TypeScript"
+const result = await fetch(`${API}/coupons/validate`, {
+  method: "POST",
+  headers,
+  body: JSON.stringify({ slug: SLUG, code, subtotal, cart, email }),
+}).then((r) => r.json());
+
+if (result.valid) {
+  showDiscountLine(result.coupon.displayName ?? result.coupon.code, result.discount);
+} else {
+  showError(result.message); // ready-made Norwegian text
+}
+```
+</CodeBlocks>
+
+A well-formed request always gets `200`; read `valid`. When it is `false`, `reason` says why and `message` is a Norwegian sentence you can show the customer as it is. When the code is valid, send it as `couponCode` on `POST /orders`.
 
 | `reason` | Meaning |
 |---|---|
@@ -25,15 +94,27 @@ The final discount is always recalculated when the order is created. Pass the co
 | `EXHAUSTED` | The code has reached its usage limit |
 | `MINIMUM_NOT_MET` | The cart is below the minimum order amount |
 | `WRONG_FULFILLMENT` | The code is only valid for pickup or only for delivery |
-| `NOT_APPLICABLE_TO_CART` | The code only applies to products or categories that are not in the cart |
-| `WRONG_DAY` / `WRONG_TIME` | The code is restricted to certain days or times |
-| `SUBSCRIBER_ONLY` | The code requires an active newsletter subscriber, matched on `email` |
+| `NOT_APPLICABLE_TO_CART` | The code applies to products or categories that are not in the cart, or an "X for Y kr" offer has too few items |
+| `WRONG_DAY` / `WRONG_TIME` | The code is limited to certain days or times |
+| `SUBSCRIBER_ONLY` | The code is for newsletter subscribers, matched on `email` |
 | `ALREADY_REDEEMED` | The code is once per customer, and this `email` has used it |
 
-## Automatic promotions
+Send `email` when you have it. Without it, subscriber-only codes always fail, and once-per-customer codes are only checked when the order is created.
 
-`POST /coupons/preview-auto` returns the best automatic promotion for a cart, so you can show "you save kr X" before checkout. Automatic promotions need no code; they are applied when the order is created.
+## Discount types
+
+| `discountType` | `discountValue` |
+|---|---|
+| `PERCENT` | Percent off |
+| `FIXED` | Øre off |
+| `FIXED_PRICE` | A fixed price in øre for the products it applies to |
+| `FREE_DELIVERY` | Free delivery |
+| `BUNDLE` | "X for Y kr": the price in øre for one bundle of `bundleQuantity` units, **not** the discount |
+
+Always show `discount` from the response as the amount saved. Treat unknown types as a general offer, since more may be added.
 
 ## Newsletter signup
 
-`POST /newsletter/signup` adds a customer to the restaurant's newsletter and returns the welcome coupon, if the restaurant has one.
+`POST /newsletter/signup?slug=` adds the customer to the restaurant's newsletter and returns the welcome coupon (`couponCode`, `discountType`, `discountValue` and the restaurant's `successMessage`, where you replace `{{code}}` and `{{discount}}`).
+
+It only works when the restaurant has turned on its newsletter popup with an active coupon; otherwise you get `404 POPUP_NOT_AVAILABLE`. Check `restaurant.newsletterPopup` from `GET /restaurant` first. It is `null` when signup is off, and otherwise holds the popup's texts and when to show it.

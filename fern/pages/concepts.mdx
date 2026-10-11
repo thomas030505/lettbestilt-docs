@@ -5,26 +5,30 @@ subtitle: The conventions every endpoint follows
 
 ## Money is in øre
 
-All amounts are integers in øre: `1 NOK = 100 øre`, so `12900` means kr 129,00. The server recalculates every price and total. Prices you send are ignored; show the `totals` the API returns.
+All amounts are integers in øre: `1 NOK = 100 øre`, so `12900` is kr 129,00. The server calculates every price and total itself and ignores prices you send. Show the `totals` the API returns.
 
-## Time is UTC
+## Time
 
-Timestamps are ISO 8601 in UTC, for example `2026-10-11T16:30:00.000Z`. Restaurants operate in Norway, so format times for display in the `Europe/Oslo` time zone.
+- Timestamps are ISO 8601 in UTC, for example `2026-10-11T16:30:00.000Z`. Format them for display in the `Europe/Oslo` time zone.
+- Opening hours, menu schedules and coupon time windows are wall-clock times in Oslo (`"15:00"`), not UTC.
+- Reservation dates (`date=2026-10-16`) are Oslo dates.
 
 ## Restaurants are identified by slug
 
-Pass `slug` as a query parameter. The internal restaurant ID is never part of the public contract.
+The slug is the restaurant's LettBestilt subdomain: `pizzaroma` for `pizzaroma.lettbestilt.no`. Pass it as `?slug=`, except for the two coupon endpoints, which take it in the JSON body. The internal restaurant ID is not part of the API.
 
-## Orders have a public token
+The API only answers for restaurants that are **live**. Until LettBestilt sets a restaurant live, every endpoint that takes a slug responds `404 RESTAURANT_NOT_FOUND`, except `GET /site-gate`.
+
+## Order IDs and public tokens
 
 `POST /orders` returns both `orderId` and `publicToken`.
 
-- `publicToken` is safe to put in URLs and share with the customer. Use it for tracking.
-- `orderId` is internal. Keep it for support requests, but do not build URLs with it.
+- `publicToken` is safe to put in URLs and share with the customer. Use it for [order tracking](/api-reference/orders/get-order).
+- `orderId` is internal. Keep it for support requests, but do not build URLs with it. Webhooks carry both.
 
 ## Capabilities
 
-`/menu` and `/restaurant` include `restaurant.capabilities`:
+`/restaurant` and `/menu` include `restaurant.capabilities`:
 
 ```json
 {
@@ -35,16 +39,52 @@ Pass `slug` as a query parameter. The internal restaurant ID is never part of th
 }
 ```
 
-Read this object instead of keeping your own feature flags. It reflects the restaurant's settings, so your site never offers a flow the order endpoint would reject. `payment.online` covers card, Vipps and other methods on the hosted payment page.
+Read this object instead of keeping your own feature flags. It follows the restaurant's settings, so your site never offers a flow the API would reject. `payment.online` covers card, Vipps and the other methods on SagaPay's hosted payment page. Treat a missing or `false` field as "not offered".
+
+## Opening hours
+
+`restaurant.openingHours` in `/menu` are the **kitchen's** hours and decide whether an order is accepted. Gate your ordering flow on them. `restaurant.venueHours` are when the doors are open, and are for display only; an empty list means the venue follows the kitchen. `restaurant.hoursOverrides` holds special opening hours, such as holidays.
 
 ## Preparation time
 
-The restaurant can turn on rush mode, which adds minutes to the estimated preparation time. `GET /prep-time` returns base time plus rush, already summed, and is never cached. Use it for "ready in about X minutes" on your site. The same value is on `restaurant.prepTime` in `/menu`, but that response is cached for a few minutes.
+Rush mode adds minutes to the preparation time. `GET /prep-time` returns base time plus rush, already added up, and is never cached. Use it for "ready in about X minutes". The same value is in `restaurant.prepTime`, but that response is cached.
+
+## Caching
+
+| Endpoint | Cache |
+|---|---|
+| `GET /menu` | 30 s at the edge, then served stale for up to 300 s while refreshing. Weak `ETag` |
+| `GET /restaurant` | 60 s at the edge, then stale for up to 600 s while refreshing |
+| `GET /dine-in/availability` | 15 s at the edge, then stale for up to 30 s |
+| `GET /prep-time`, `GET /site-gate` | Never cached |
+| `GET /orders/{token}`, `GET /address-search` | Never cached (`private, no-store`) |
+
+Changes the restaurant makes in its dashboard therefore reach your site within a few minutes. Send `If-None-Match` with the menu's `ETag` to get a `304` when nothing has changed.
+
+## Order statuses
+
+| Status | Meaning |
+|---|---|
+| `AWAITING_PAYMENT` | Online order waiting for payment. Not shown to the kitchen |
+| `PAID` | Online payment confirmed |
+| `CONFIRMED` | Accepted. Cash orders start here |
+| `PREPARING` | The kitchen is making it |
+| `READY_FOR_PICKUP` | Ready to be picked up |
+| `OUT_FOR_DELIVERY` | On its way |
+| `COMPLETED` | Picked up or delivered |
+| `CANCELLED` | Cancelled by the restaurant |
+| `FAILED` | The online payment failed |
+
+A table reservation uses the same statuses: `PENDING_APPROVAL` while the restaurant decides, then `CONFIRMED` or `CANCELLED`.
 
 ## Address
 
-`restaurant.address` is the restaurant's visiting address, or `null` if it has none. It is never an object with empty fields, so `address ?? yourFallback` works. `latitude` and `longitude` are either both set or both `null`.
+`restaurant.address` is the restaurant's visiting address, or `null` if it has none. It is never an object with empty fields, so `address ?? fallback` works. `latitude` and `longitude` are either both set or both `null`.
 
 ## Language
 
-Set `locale` to `nb` (default) or `en` when creating orders. It controls the language of emails sent to the customer.
+Names and descriptions come in Norwegian, with English versions in `nameEn` and `descriptionEn` where the restaurant has entered them. Set `locale` to `nb` (default) or `en` on orders and reservations to choose the language of the emails LettBestilt sends to the customer. Error messages are often in Norwegian.
+
+## API version
+
+The API is versioned in the path (`/api/v1`). Every response carries `X-LettBestilt-Api-Version: 1`. New fields can be added to responses at any time, so ignore fields you do not know.

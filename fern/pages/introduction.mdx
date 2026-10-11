@@ -1,48 +1,73 @@
 ---
 title: Introduction
-subtitle: Online ordering for restaurant websites, as an API
+subtitle: The ordering engine behind restaurant websites
 ---
 
-LettBestilt is the ordering engine behind restaurant websites in Norway. You build the website; we run menus, orders, payments, kitchen tickets and reservations.
+LettBestilt runs online ordering for restaurants in Norway. This API is for agencies and developers who build restaurant websites: you design and host the site, and LettBestilt runs everything behind the order button.
 
-With the public API you can:
+| You build | LettBestilt runs |
+|---|---|
+| The website, its design and content | Menus, prices, opening hours and delivery zones |
+| The menu pages, cart and checkout UI | Price calculation, coupons and promotions |
+| The order confirmation and tracking page | Payment through SagaPay's hosted page, or cash |
+| Your own integrations, through webhooks | The kitchen screen, tickets, customer emails and reservations |
 
-- **Show the live menu**: categories, products, variants, add-ons, allergens, opening hours and delivery zones.
-- **Take orders** for pickup or delivery, paid online through a hosted payment page (card, Vipps and the other methods the restaurant has enabled) or in cash.
-- **Track orders** with a public token, so customers can follow their order on your site.
-- **Take table reservations** and check availability.
-- **Validate coupons**, preview automatic promotions and sign customers up for the restaurant's newsletter.
-- **Receive webhooks** when orders are created, paid, change status or are cancelled.
+The restaurant manages its menu, sold-out items, opening hours and rush mode in its LettBestilt dashboard. Your site reads the changes through the API, so you never hard-code menu data.
 
-Everything the restaurant changes in its LettBestilt dashboard (prices, sold-out items, opening hours, rush mode) shows up through the API right away. Your site never needs to hard-code menu data.
+## What you can build
 
-## Base URL
+- **Menu pages** with categories, variants, add-ons, combo deals, allergens and the restaurant's own branding.
+- **Checkout** for pickup and delivery, paid online (card, Vipps and the other methods the restaurant has on SagaPay) or in cash.
+- **Order tracking** on your own site, with status and ready time.
+- **Table reservations**: available times and reservation requests that the restaurant approves.
+- **Coupons, automatic promotions and newsletter signup.**
+- **Webhooks** to your own systems when orders and reservations change.
+
+## The basics
+
+Every request goes to one base URL:
 
 ```
 https://www.lettbestilt.no/api/v1
 ```
 
 <Warning>
-Always use `www.lettbestilt.no`. The bare domain `lettbestilt.no` redirects to `www`, and redirects drop the `Authorization` header.
+Always use `www.lettbestilt.no`. The bare domain redirects to `www`, and the redirect drops the `Authorization` header.
 </Warning>
 
-## How a restaurant is identified
+Each restaurant is identified by its **slug**, which is also its LettBestilt subdomain: `pizzaroma` for `pizzaroma.lettbestilt.no`. Most endpoints take it as `?slug=pizzaroma`.
 
-Every request names the restaurant with the `slug` query parameter, for example `?slug=pizzaroma`. The slug is the restaurant's subdomain on LettBestilt (`pizzaroma.lettbestilt.no`).
+Calls from your server use the restaurant's **API key**. Calls from the browser are allowed from the restaurant's **verified domains**. See [Authentication](/authentication).
+
+## What you get from LettBestilt
+
+Per restaurant you build for, LettBestilt sets up:
+
+- an API key
+- the domains your site runs on, verified for browser calls and payment return URLs
+- webhook subscriptions to your endpoints, if you want them
+
+To start building on LettBestilt, [contact us](https://www.lettbestilt.no/kontakt).
 
 ## Next steps
 
 <Cards>
-  <Card title="Quickstart" href="/quickstart">
-    Fetch a menu and place your first order.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Make your first calls: restaurant, menu and preparation time.
   </Card>
-  <Card title="Authentication" href="/authentication">
-    API keys and verified domains.
+  <Card title="Build an ordering flow" icon="cart-shopping" href="/build-an-ordering-flow">
+    From menu to cart, payment and order tracking.
   </Card>
-  <Card title="Webhooks" href="/webhooks">
-    Get notified about orders in real time.
+  <Card title="Table reservations" icon="utensils" href="/reservations">
+    Show available times and send reservation requests.
   </Card>
-  <Card title="API reference" href="/api-reference">
-    Every endpoint, with request and response schemas.
+  <Card title="Webhooks" icon="bell" href="/webhooks">
+    Get signed events when orders and reservations change.
+  </Card>
+  <Card title="Go-live checklist" icon="list-check" href="/go-live">
+    Everything to check before real customers order.
+  </Card>
+  <Card title="API reference" icon="code" href="/api-reference">
+    Every endpoint and webhook, with schemas and examples.
   </Card>
 </Cards>
