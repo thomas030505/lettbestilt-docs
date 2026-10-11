@@ -1,0 +1,73 @@
+---
+title: Webhooks
+subtitle: Get notified when orders and reservations change
+---
+
+LettBestilt sends an HTTPS `POST` to your endpoint when something happens to a restaurant's orders or reservations. Webhooks are registered per restaurant; ask LettBestilt to register your URL. You receive a signing secret (starting with `whsec_`) once, when the webhook is created.
+
+## Events
+
+| Event | When |
+|---|---|
+| `ORDER_CREATED` | A new order is placed |
+| `ORDER_PAID` | Online payment is confirmed |
+| `ORDER_STATUS_CHANGED` | The kitchen moves the order to a new status |
+| `ORDER_CANCELLED` | The order is cancelled |
+| `RESERVATION_REQUESTED` | A guest requests a table |
+| `RESERVATION_APPROVED` | The restaurant approves a reservation |
+| `RESERVATION_REJECTED` | The restaurant rejects a reservation |
+
+## Payload
+
+```json
+{
+  "event": "ORDER_CREATED",
+  "createdAt": "2026-10-11T16:30:00.000Z",
+  "data": { }
+}
+```
+
+`data` holds the order or reservation. `ORDER_CREATED` includes `estimatedReadyAt` and `requestedPickupAt` as ISO 8601 UTC.
+
+## Headers
+
+| Header | Meaning |
+|---|---|
+| `X-LettBestilt-Webhook-Id` | The webhook subscription |
+| `X-LettBestilt-Delivery-Id` | Stable per event. Retries of the same event carry the same ID, so use it to deduplicate |
+| `X-LettBestilt-Webhook-Timestamp` | Unix time in seconds when this attempt was signed |
+| `X-LettBestilt-Webhook-Signature` | `sha256=` followed by the hex HMAC |
+
+## Verify the signature
+
+The signature is an HMAC-SHA256 of `{timestamp}.{raw body}`, keyed with your signing secret. Always verify it before you trust the payload, and compute it over the **raw** request body, not re-serialized JSON.
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verifyLettBestiltWebhook(
+  rawBody: string,
+  timestamp: string,
+  signatureHeader: string,
+  secret: string,
+): boolean {
+  const expected = createHmac("sha256", secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+  const received = signatureHeader.replace(/^sha256=/, "");
+  const a = Buffer.from(expected, "hex");
+  const b = Buffer.from(received, "hex");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+
+  // Reject old timestamps to stop replays (5 minutes here).
+  const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp));
+  return ageSeconds < 300;
+}
+```
+
+## Delivery and retries
+
+- Respond with any `2xx` within 5 seconds. Do heavy work after you respond.
+- `5xx`, timeouts, `408` and `429` are retried after 1 min, 5 min, 15 min, 1 h, 4 h and 12 h. After 6 failed attempts the delivery is marked as failed.
+- Other `4xx` responses are treated as permanent and not retried.
+- Deliveries can arrive more than once and out of order. Deduplicate on `X-LettBestilt-Delivery-Id`, and use `createdAt` to order events.

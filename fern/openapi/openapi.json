@@ -1,0 +1,2805 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LettBestilt Public API",
+    "version": "1",
+    "description": "Public API for embedding ordering on restaurant websites. All money values are integer øre (1 NOK = 100 øre). Timestamps are ISO-8601 UTC. The tenant key is the `slug` query parameter.",
+    "contact": {
+      "name": "LettBestilt AS",
+      "email": "support@lettbestilt.no"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://www.lettbestilt.no",
+      "description": "Production"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Per-restaurant public API key. Required for write endpoints when not coming from an allow-listed browser origin. Rotate via the dashboard."
+      },
+      "BrowserOrigin": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Origin",
+        "description": "No API key needed when the request's `Origin` header matches a trusted browser origin for this restaurant's slug: the LettBestilt app itself, `{slug}.{appDomain}`, one of the restaurant's verified custom domains, or a slug-bound `{slug}=https://partner.example` entry in PUBLIC_API_ALLOWED_ORIGINS. Unscoped entries are CORS-only and never authenticate. Browsers set `Origin` automatically — this isn't a value you configure — but `apiKey`-in-header is the closest honest OpenAPI representation of the mechanism (see src/lib/public-api-auth.ts). Either this OR BearerApiKey satisfies auth."
+      }
+    },
+    "schemas": {
+      "Address": {
+        "type": "object",
+        "description": "Restaurantens offentlige besøksadresse. Trygg å publisere: adresse på kontaktsiden, `address`/`geo` i Restaurant-JSON-LD, og kartpunkt for hentestedet. Feltet er `null` når restauranten ikke har oppgitt en gateadresse — vi sender aldri et tomt skall, så `address === null` betyr «ingen adresse å vise», ikke «adresse med tomme felt». `latitude`/`longitude` er begge satt eller begge `null`; sjekk én av dem før du rendrer kart.",
+        "required": [
+          "line1",
+          "postalCode",
+          "city",
+          "country",
+          "latitude",
+          "longitude"
+        ],
+        "properties": {
+          "line1": {
+            "type": "string",
+            "description": "Gateadresse, f.eks. \"Heggeliveien 5\". Alltid ikke-tom."
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fire siffer, f.eks. \"9325\"."
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Poststed, f.eks. \"Bardufoss\"."
+          },
+          "country": {
+            "type": "string",
+            "enum": [
+              "NO"
+            ],
+            "description": "ISO 3166-1 alpha-2. Alltid \"NO\"."
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "WGS84. Satt når eieren har valgt adressen fra adresseoppslaget i dashbordet."
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "WGS84. Alltid satt sammen med `latitude`."
+          }
+        }
+      },
+      "DayHours": {
+        "type": "object",
+        "description": "Én ukedag i et åpningstidssett. `dayOfWeek` er 0 = søndag … 6 = lørdag. Tidene er lokal veggklokke i Europe/Oslo, ikke UTC. Når `isClosed` er true skal `opensAt`/`closesAt` ignoreres.",
+        "required": [
+          "dayOfWeek",
+          "opensAt",
+          "closesAt",
+          "isClosed"
+        ],
+        "properties": {
+          "dayOfWeek": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "description": "0 = søndag, 6 = lørdag."
+          },
+          "opensAt": {
+            "type": "string",
+            "example": "15:00",
+            "description": "HH:MM, Europe/Oslo."
+          },
+          "closesAt": {
+            "type": "string",
+            "example": "21:30",
+            "description": "HH:MM, Europe/Oslo."
+          },
+          "isClosed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PrepTime": {
+        "type": "object",
+        "description": "Gjeldende tilberedningstid, ferdig summert: grunntid + rushtid. `pickupMinutes`/`deliveryMinutes` er det som skal vises som «ca. X min», og nøyaktig det `POST /api/v1/orders` setter som `estimatedReadyAt` (nå + minutter) for en ASAP-ordre. `rushDelayMinutes` > 0 betyr at kjøkkenet har skrudd på rush; rush slår seg av selv ved neste midnatt (Oslo). Kundesiden skal ikke regne selv — vis tallene som de er.",
+        "required": [
+          "pickupMinutes",
+          "deliveryMinutes",
+          "rushDelayMinutes",
+          "basePickupMinutes",
+          "baseDeliveryMinutes"
+        ],
+        "properties": {
+          "pickupMinutes": {
+            "type": "integer",
+            "description": "Grunntid henting + rush"
+          },
+          "deliveryMinutes": {
+            "type": "integer",
+            "description": "Grunntid levering + rush"
+          },
+          "rushDelayMinutes": {
+            "type": "integer",
+            "description": "Ekstra minutter fra rush akkurat nå (0 = av)"
+          },
+          "basePickupMinutes": {
+            "type": "integer",
+            "description": "Restaurantens normale hentetid (= `defaultPrepMinutes`)"
+          },
+          "baseDeliveryMinutes": {
+            "type": "integer",
+            "description": "Restaurantens normale leveringstid (= `defaultDeliveryMinutes`)"
+          }
+        }
+      },
+      "RestaurantCapabilities": {
+        "type": "object",
+        "description": "Stable dashboard-controlled contract for external restaurant sites. Missing or false fields must fail closed in the client.",
+        "required": [
+          "pickup",
+          "delivery",
+          "reservations",
+          "payment"
+        ],
+        "properties": {
+          "pickup": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "type": "boolean"
+          },
+          "reservations": {
+            "type": "boolean"
+          },
+          "payment": {
+            "type": "object",
+            "description": "Public checkout choices. `online` opens one hosted SagaPay page where the customer can choose card, Vipps and any other enabled SagaPay rails; `cash` is paid at pickup/delivery.",
+            "required": [
+              "online",
+              "cash"
+            ],
+            "properties": {
+              "online": {
+                "type": "boolean"
+              },
+              "cash": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "AddressHit": {
+        "type": "object",
+        "description": "Kartverket address result with WGS84 coordinates for delivery-zone matching.",
+        "required": [
+          "label",
+          "street",
+          "postalCode",
+          "city",
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "street": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "MISSING_SLUG",
+                  "MISSING_TOKEN",
+                  "INVALID_JSON",
+                  "INVALID_SUCCESS_URL",
+                  "INVALID_CANCEL_URL",
+                  "VALIDATION_FAILED",
+                  "RESTAURANT_NOT_FOUND",
+                  "ORDER_NOT_FOUND",
+                  "RATE_LIMITED",
+                  "BAD_REQUEST",
+                  "UNAUTHORIZED",
+                  "FORBIDDEN",
+                  "POPUP_NOT_AVAILABLE",
+                  "PRICE_CHANGED",
+                  "PAYMENT_INCOMPLETE",
+                  "PAYMENT_PENDING",
+                  "PAYMENT_PROVIDER_INVALID",
+                  "FULFILLMENT_NOT_ALLOWED",
+                  "INTERNAL_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "AddonTier": {
+        "type": "object",
+        "description": "Pricing tier on an addon group. Variants reference a tier via `addonTierKey`; when set, addons in this group use the tier-specific price from `Addon.tierPrices[key]` instead of the base `Addon.price`.",
+        "required": [
+          "key",
+          "label",
+          "sortOrder"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer"
+          }
+        }
+      },
+      "Addon": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "price",
+          "sortOrder",
+          "tierPrices"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "price": {
+            "type": "integer",
+            "description": "Base price in øre. Used when the selected variant has no `addonTierKey`, or when no tier override exists."
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "tierPrices": {
+            "type": "object",
+            "description": "Map of tier `key` → price in øre. If `variant.addonTierKey` matches a key here, use this price instead of `price`. Server re-validates on order create.",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "AddonGroup": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "minSelect",
+          "maxSelect",
+          "isRequired",
+          "sortOrder",
+          "tiers",
+          "addons"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "minSelect": {
+            "type": "integer"
+          },
+          "maxSelect": {
+            "type": "integer"
+          },
+          "isRequired": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddonTier"
+            }
+          },
+          "addons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Addon"
+            }
+          }
+        }
+      },
+      "ProductVariant": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "price",
+          "isDefault",
+          "sortOrder"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "price": {
+            "type": "integer",
+            "description": "Absolute price in øre (replaces basePrice when selected)."
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "addonTierKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "References an `AddonGroup.tiers[].key`. When set, addons attached to the product use tier-priced overrides for this variant."
+          }
+        }
+      },
+      "ComboSlot": {
+        "type": "object",
+        "description": "Slot in a combo-deal product. The customer must pick between `minQty` and `maxQty` products from `allowedProductIds`. If `requiredTierKey` is set, each chosen variant must have a matching `addonTierKey`.",
+        "required": [
+          "id",
+          "name",
+          "sortOrder",
+          "minQty",
+          "maxQty",
+          "allowedProductIds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "requiredTierKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "minQty": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxQty": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "allowedProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Product IDs allowed in this slot. The full products are present elsewhere in the menu response — look them up by ID."
+          }
+        }
+      },
+      "ComboSelection": {
+        "type": "object",
+        "description": "One chosen product for one combo slot. Submit one entry per pick — for `maxQty: 2`, send two entries with the same `slotId`.",
+        "required": [
+          "slotId",
+          "productId"
+        ],
+        "properties": {
+          "slotId": {
+            "type": "string"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "variantId": {
+            "type": "string"
+          },
+          "addonIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "OrderItem": {
+        "type": "object",
+        "required": [
+          "productId",
+          "quantity"
+        ],
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "variantId": {
+            "type": "string"
+          },
+          "addonIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "comboSelections": {
+            "type": "array",
+            "description": "Required when `productId` refers to a combo product (`isCombo: true`). Total entries per `slotId` must satisfy that slot's `minQty`/`maxQty`. Server re-prices and validates.",
+            "items": {
+              "$ref": "#/components/schemas/ComboSelection"
+            }
+          }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "basePrice",
+          "sortOrder",
+          "variants",
+          "addonGroups",
+          "allergens"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "descriptionEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageIsStock": {
+            "type": "boolean",
+            "description": "true = bildet er en generisk illustrasjon fra LettBestilts bildebank, ikke et foto av restaurantens faktiske rett. Vis «Illustrasjonsfoto» ved bildet når dette er satt."
+          },
+          "basePrice": {
+            "type": "integer"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "isPopular": {
+            "type": "boolean"
+          },
+          "isRecommended": {
+            "type": "boolean"
+          },
+          "isVegan": {
+            "type": "boolean"
+          },
+          "isVegetarian": {
+            "type": "boolean"
+          },
+          "isCombo": {
+            "type": "boolean",
+            "description": "When true, the product is a combo deal. Render the slot wizard from `comboSlots` and send `comboSelections` on order create."
+          },
+          "allowedFulfillment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              null
+            ],
+            "description": "\"PICKUP\" = kan kun hentes, \"DELIVERY\" = kan kun leveres, null = begge. Feltet kan mangle i eldre/cachede svar — tolk fravær som null. For kombo-produkter gjelder også underproduktene kunden velger (slå dem opp via comboSlots). POST /api/v1/orders avviser brudd med 422 FULFILLMENT_NOT_ALLOWED."
+          },
+          "comboSlots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComboSlot"
+            }
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductVariant"
+            }
+          },
+          "addonGroups": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/AddonGroup"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "sortOrder": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "allergens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MenuSchedule": {
+        "type": "object",
+        "description": "Et tidsvindu som gjør en meny aktiv. `startsAt`/`endsAt` er lokal veggklokke i Europe/Oslo.",
+        "required": [
+          "id",
+          "dayOfWeek",
+          "startsAt",
+          "endsAt",
+          "priority",
+          "isActive"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "dayOfWeek": {
+            "type": "string",
+            "enum": [
+              "MONDAY",
+              "TUESDAY",
+              "WEDNESDAY",
+              "THURSDAY",
+              "FRIDAY",
+              "SATURDAY",
+              "SUNDAY"
+            ]
+          },
+          "startsAt": {
+            "type": "string",
+            "example": "11:00",
+            "description": "HH:MM, Europe/Oslo. Inklusiv."
+          },
+          "endsAt": {
+            "type": "string",
+            "example": "15:00",
+            "description": "HH:MM, Europe/Oslo. Eksklusiv."
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Menu": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "isDefault",
+          "priority",
+          "sortOrder",
+          "schedules"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MenuSchedule"
+            }
+          },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "example": "2026-10-12",
+            "description": "Første gyldige dag (Europe/Oslo), inklusiv. null = ingen nedre grense."
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "example": "2026-10-18",
+            "description": "Siste gyldige dag (Europe/Oslo), inklusiv. null = ingen øvre grense."
+          }
+        }
+      },
+      "PublicCoupon": {
+        "type": "object",
+        "description": "Et tilbud eller en rabattkode slik `GET /api/v1/menu` lister dem i `coupons` (kodebaserte) og `promotions` (automatiske). Selve koden (`code`) er aldri med i listene — kunden taster den, og `POST /api/v1/coupons/validate` avgjør om den gjelder.",
+        "required": [
+          "id",
+          "discountType",
+          "discountValue",
+          "minimumOrder",
+          "isAutomatic",
+          "appliesTo"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayBadge": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discountType": {
+            "type": "string",
+            "enum": [
+              "PERCENT",
+              "FIXED",
+              "FIXED_PRICE",
+              "FREE_DELIVERY",
+              "BUNDLE"
+            ],
+            "description": "Ukjente verdier: vis som generelt tilbud (typesettet kan utvides). BUNDLE = «X for Y kr»."
+          },
+          "discountValue": {
+            "type": "integer",
+            "description": "PERCENT: prosent. FIXED/FIXED_PRICE: øre. BUNDLE: pris i øre for én pakke på bundleQuantity enheter — ikke rabatten; vis `discount` fra validate/preview-auto."
+          },
+          "minimumOrder": {
+            "type": "integer",
+            "description": "Minste delsum i øre."
+          },
+          "usageLimit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "usageCount": {
+            "type": "integer"
+          },
+          "validFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "validTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "isAutomatic": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "allowedDaysOfWeek": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "description": "0 = søndag … 6 = lørdag (Europe/Oslo). Tom liste = alle dager."
+          },
+          "allowedFulfillment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              null
+            ]
+          },
+          "allowedTimeStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "HH:MM, Europe/Oslo."
+          },
+          "allowedTimeEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "HH:MM, Europe/Oslo."
+          },
+          "appliesTo": {
+            "type": "string",
+            "enum": [
+              "ORDER",
+              "CATEGORIES",
+              "PRODUCTS"
+            ]
+          },
+          "bundleQuantity": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Kun BUNDLE: antall enheter i én pakke. null for andre typer."
+          },
+          "bundleTierKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Kun BUNDLE: kun varianter med samme addonTierKey teller (f.eks. \"stor\"). null = alle størrelser."
+          },
+          "maxBundlesPerOrder": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Kun BUNDLE: maks antall pakker per bestilling. null = ubegrenset."
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Kategorier tilbudet gjelder for når `appliesTo` er CATEGORIES."
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Produkter tilbudet gjelder for når `appliesTo` er PRODUCTS."
+          }
+        }
+      },
+      "CreateOrderRequest": {
+        "type": "object",
+        "required": [
+          "items",
+          "fulfillment",
+          "customerName",
+          "customerEmail",
+          "paymentMethod"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/OrderItem"
+            }
+          },
+          "fulfillment": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY"
+            ]
+          },
+          "orderType": {
+            "type": "string",
+            "enum": [
+              "TAKEAWAY"
+            ],
+            "default": "TAKEAWAY",
+            "description": "Bestilling er alltid TAKEAWAY (15 % MVA på mat). For DINE_IN (25 % MVA) — bruk POST /api/v1/reservations i stedet."
+          },
+          "customerName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "customerEmail": {
+            "type": "string",
+            "format": "email"
+          },
+          "customerPhone": {
+            "type": "string"
+          },
+          "deliveryAddress": {
+            "type": "string"
+          },
+          "deliveryCity": {
+            "type": "string"
+          },
+          "deliveryPostalCode": {
+            "type": "string"
+          },
+          "deliveryLat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "description": "Breddegrad for leveringsadressen. Kreves for å matche RADIUS-baserte leveringssoner (POSTAL_CODES-soner trenger kun deliveryPostalCode)."
+          },
+          "deliveryLng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "description": "Lengdegrad for leveringsadressen. Kreves for å matche RADIUS-baserte leveringssoner (POSTAL_CODES-soner trenger kun deliveryPostalCode)."
+          },
+          "deliveryNotes": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "pickupNotes": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "requestedPickupAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "couponCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "expectedTotal": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Valgfri: totalen (i øre) klienten viste kunden. Er serverens autoritative sum HØYERE, avvises ordren med 409 og `code: \"PRICE_CHANGED\"` — ingen ordre opprettes. En lavere faktisk sum godtas (kunden belastes mindre enn hen så), slik at en auto-kampanje klienten ikke kan reprodusere ikke blir checkout-nedetid."
+          },
+          "paymentMethod": {
+            "type": "string",
+            "enum": [
+              "STRIPE",
+              "CASH",
+              "VIPPS"
+            ],
+            "description": "Use STRIPE for the public online choice; SagaPay returns one `stripeUrl` page with Vipps included. CASH is paid at pickup/delivery. VIPPS remains accepted only for legacy direct-Vipps clients."
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "nb",
+              "en"
+            ]
+          },
+          "consentGivenAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "marketingOptIn": {
+            "type": "boolean",
+            "description": "Kundens samtykke til markedsføringshenvendelser, gitt ved checkout."
+          },
+          "attributionCampaignId": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Kampanje-attribusjon: verdien av ?lb_campaign=<id> fra en LettBestilt-kampanjelenke. Send den videre uendret ved checkout, så telles ordren som konvertering for kampanjen. Valgfri metadata — en malformet eller fremmed id droppes stille og blokkerer aldri ordren."
+          },
+          "buyerCompanyName": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "B2B: firmanavn på kvitteringen."
+          },
+          "buyerOrgNumber": {
+            "type": "string",
+            "pattern": "^\\d{9}$",
+            "description": "B2B: norsk organisasjonsnummer, nøyaktig 9 sifre (separatorer strippes server-side)."
+          }
+        }
+      },
+      "CreateOrderResponse": {
+        "type": "object",
+        "required": [
+          "orderId",
+          "publicToken",
+          "totals"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "publicToken": {
+            "type": "string"
+          },
+          "totals": {
+            "type": "object",
+            "description": "Autoritative summer beregnet server-side (klientens egne priser er kun visning). Vis disse til kunden før redirect til betaling.",
+            "required": [
+              "subtotal",
+              "deliveryFee",
+              "discount",
+              "total",
+              "currency"
+            ],
+            "properties": {
+              "subtotal": {
+                "type": "integer",
+                "description": "Sum av alle linjer inkl. tilbehør, i øre."
+              },
+              "deliveryFee": {
+                "type": "integer",
+                "description": "Leveringsgebyr i øre (0 for henting)."
+              },
+              "discount": {
+                "type": "integer",
+                "description": "Anvendt kupong-/auto-promo-rabatt i øre."
+              },
+              "total": {
+                "type": "integer",
+                "description": "subtotal + deliveryFee − discount, i øre."
+              },
+              "currency": {
+                "type": "string",
+                "description": "Restaurantens valuta, f.eks. \"NOK\"."
+              }
+            }
+          },
+          "stripeUrl": {
+            "type": "string",
+            "description": "Hosted SagaPay payment page URL for online orders. Vipps is included inside this page; the field name is historical and does not identify a provider. Redirect the customer here to pay."
+          },
+          "vippsUrl": {
+            "type": "string",
+            "deprecated": true,
+            "description": "Legacy direct-Vipps response. New integrations must use `stripeUrl` for online payment."
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/restaurant": {
+      "get": {
+        "summary": "Branding/contact for a restaurant",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "description": "Returns `restaurant.newsletterPopup` when the popup is enabled and linked to an active coupon (otherwise `null`). `restaurant.capabilities` is the stable dashboard-controlled source for pickup, delivery, reservations and payment. The legacy `restaurant.payment` object remains for existing clients. `restaurant.address` er restaurantens besøksadresse (eller `null`) — se Address-skjemaet. `restaurant.prepTime` bærer tilberedningstid inkl. rush, men svaret er CDN-cachet (60 s + 600 s stale-while-revalidate) — bruk `GET /api/v1/prep-time` der tallet vises i kassen. De rå feltene `defaultPrepMinutes`/`defaultDeliveryMinutes` er grunntid UTEN rush og bør ikke vises direkte.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restaurant payload (includes stable `capabilities` and `newsletterPopup` when configured)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Kun feltene som dokumenteres eksplisitt er listet; payloaden inneholder flere (branding, kontakt, sporingstekster).",
+                  "properties": {
+                    "restaurant": {
+                      "type": "object",
+                      "properties": {
+                        "address": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/Address"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "capabilities": {
+                          "$ref": "#/components/schemas/RestaurantCapabilities"
+                        },
+                        "prepTime": {
+                          "$ref": "#/components/schemas/PrepTime"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing slug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restaurant not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/menu": {
+      "get": {
+        "summary": "Full menu, branding, coupons, allergens, opening hours",
+        "description": "`restaurant.address` er restaurantens besøksadresse (eller `null`) — samme objekt som GET /api/v1/restaurant returnerer. Bruk den til kontaktside og til `address`/`geo` i Restaurant-JSON-LD. Se Address-skjemaet.\n\n`restaurant.prepTime` (grunntid + rush) følger med, men svaret er CDN-cachet — vis tallet fra `GET /api/v1/prep-time` i kassen, ikke herfra.\n\n`menus` og `categories` inneholder kun menyer som er aktive når svaret bygges (gyldighetsperiode `startsOn`/`endsOn`, deretter tidsplan, deretter standardmeny som fallback), og `upsell.products` filtreres på samme måte.\n\n**To sett åpningstider:** `restaurant.openingHours` er KJØKKENETS tider og det eneste settet som avgjør om en bestilling godtas — gate alltid bestillingsflyten på dette. `restaurant.venueHours` er LOKALETS tider (når døra er åpen) og er ren visning; den er tom når lokalet følger kjøkkenet, og da skal du vise `openingHours`.",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Menu payload (with weak ETag and Cache-Control headers)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Kun feltene som dokumenteres eksplisitt er listet; payloaden inneholder hele menyen, kuponger, åpningstider og leveringssoner.",
+                  "properties": {
+                    "restaurant": {
+                      "type": "object",
+                      "properties": {
+                        "address": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/Address"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "openingHours": {
+                          "type": "array",
+                          "description": "KJØKKENETS åpningstider. Det eneste settet som gater bestilling — serveren avviser en ordre utenfor disse tidene.",
+                          "items": {
+                            "$ref": "#/components/schemas/DayHours"
+                          }
+                        },
+                        "venueHours": {
+                          "type": "array",
+                          "description": "LOKALETS åpningstider (når døra er åpen). KUN visning — bruk dem aldri til å avgjøre om bestilling er mulig. Tom array betyr at lokalet følger kjøkkenet; vis da openingHours i stedet.",
+                          "items": {
+                            "$ref": "#/components/schemas/DayHours"
+                          }
+                        }
+                      }
+                    },
+                    "menus": {
+                      "type": "array",
+                      "description": "Kun menyer som er aktive når svaret bygges (gyldighetsperiode → tidsplan → standard-fallback). Svaret er CDN-cachet: skjul også klient-side en meny der Oslo-dagens dato < startsOn eller > endsOn. Manglende felt = ingen begrensning.",
+                      "items": {
+                        "$ref": "#/components/schemas/Menu"
+                      }
+                    },
+                    "categories": {
+                      "type": "array",
+                      "description": "Kategorier (øverste nivå) på de aktive menyene, med produktene sine.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "menuId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "nameEn": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "description": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "imageUrl": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "addonGroups": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AddonGroup"
+                            }
+                          },
+                          "products": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/Product"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "coupons": {
+                      "type": "array",
+                      "description": "Kodebaserte rabattkoder (uten selve koden).",
+                      "items": {
+                        "$ref": "#/components/schemas/PublicCoupon"
+                      }
+                    },
+                    "promotions": {
+                      "type": "array",
+                      "description": "Automatiske tilbud som vises som banner og anvendes av serveren i kassen.",
+                      "items": {
+                        "$ref": "#/components/schemas/PublicCoupon"
+                      }
+                    },
+                    "upsell": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "isActive": {
+                          "type": "boolean"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "POPULAR",
+                            "MANUAL"
+                          ]
+                        },
+                        "products": {
+                          "type": "array",
+                          "description": "Kun aktive, tilgjengelige produkter på menyer som er aktive nå (fra oktober 2026 — tidligere ble også produkter på inaktive menyer returnert).",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "sortOrder": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "nameEn": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "description": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "imageUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "imageIsStock": {
+                                "type": "boolean"
+                              },
+                              "basePrice": {
+                                "type": "integer"
+                              },
+                              "allowedFulfillment": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "enum": [
+                                  "PICKUP",
+                                  "DELIVERY",
+                                  null
+                                ],
+                                "description": "Som `Product.allowedFulfillment`. null = begge."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified (ETag matched)"
+          },
+          "404": {
+            "description": "Restaurant not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/address-search": {
+      "get": {
+        "summary": "Search Norwegian delivery addresses",
+        "description": "Origin-protected Kartverket lookup for custom restaurant checkouts. Use the returned coordinates for RADIUS delivery zones and the postal code for POSTAL_CODES zones.",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching delivery addresses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "hits"
+                  ],
+                  "properties": {
+                    "hits": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AddressHit"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders": {
+      "post": {
+        "summary": "Create an order (takeaway only)",
+        "description": "Takeaway-bestilling (15 % mva). DINE_IN aksepteres ikke her — bordbestilling går via POST /api/v1/reservations som forespørsel. `orderType` er låst til \"TAKEAWAY\" i valideringsskjemaet, så et forsøk på å sende `orderType: \"DINE_IN\"` avvises som 422 VALIDATION_FAILED (ikke en egen DINE_IN-spesifikk feilkode).",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "successUrl",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Success URL the customer returns to after paying. Must match NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_APP_DOMAIN. Use {TOKEN} as placeholder for publicToken."
+          },
+          {
+            "name": "cancelUrl",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "description": "Optional. 16-128 url-safe characters (a-z, A-Z, 0-9, _, -). Replays of the same key (per restaurant) return the existing order."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Order created (or replayed via idempotency)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateOrderResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / invalid API key (and not from a trusted browser origin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt — ingen ny ordre opprettet. `code: \"PRICE_CHANGED\"`: `expectedTotal` ble sendt og serverens autoritative sum er høyere (`error.details: { expectedTotal, actualTotal, currency }`) — hent priser på nytt og prøv igjen. `code: \"PAYMENT_PENDING\"`: replay av en `Idempotency-Key` der ordren nettopp ble opprettet og betalingslenken fortsatt lages — vent et par sekunder og prøv igjen med SAMME nøkkel. `code: \"PAYMENT_INCOMPLETE\"`: samme situasjon, men ordren er for gammel til at kallet kan være underveis — betalingslenken ble aldri opprettet (`error.details: { orderId }`), start bestillingen på nytt. `publicToken` returneres aldri i disse feilene.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (VALIDATION_FAILED), eller en vare som ikke kan bestilles med valgt leveringsmåte (FULFILLMENT_NOT_ALLOWED, error.details: { productId, productName, allowedFulfillment, requestedFulfillment })",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{token}": {
+      "get": {
+        "summary": "Public order tracking by publicToken",
+        "description": "`order.restaurant.address` er hentestedet — restaurantens besøksadresse (eller `null`), samme objekt som GET /api/v1/menu returnerer. Rendrer du kart, gate det på `order.restaurant.trackingShowMap` OG på at `address.latitude` finnes: eieren kan skru av kartet, og en restaurant uten kartpunkt har ingen koordinater å vise.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Kun feltene som dokumenteres eksplisitt er listet; payloaden inneholder hele ordren, linjene og betalingsstatus.",
+                  "properties": {
+                    "order": {
+                      "type": "object",
+                      "properties": {
+                        "requestedPickupAt": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "AVTALT hente-/leveringstid. Dette er tiden kunden skal se. Restauranten kan flytte den etter bestilling — er `pickupTimeRevisedAt` satt, er dette ikke lenger tidspunktet kunden opprinnelig valgte."
+                        },
+                        "originalRequestedPickupAt": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Tidspunktet kunden opprinnelig valgte, fryst ved første flytting. `null` = tiden er aldri flyttet."
+                        },
+                        "pickupTimeRevisedAt": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Når restauranten sist flyttet hente-/leveringstiden — enten den avtalte tiden på en forhåndsordre (`requestedPickupAt`) eller, ved rushtid, den estimerte klar-tiden på en «så snart som mulig»-ordre (`estimatedReadyAt`; da er `originalRequestedPickupAt` null). Bruk denne til å vise «restauranten har endret tiden» i stedet for å bytte klokkeslett i stillhet. `null` = aldri flyttet."
+                        },
+                        "restaurant": {
+                          "type": "object",
+                          "properties": {
+                            "trackingShowMap": {
+                              "type": "boolean",
+                              "description": "Eierens bryter for om sporingssiden skal vise kart til hentestedet."
+                            },
+                            "address": {
+                              "oneOf": [
+                                {
+                                  "$ref": "#/components/schemas/Address"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dine-in/availability": {
+      "get": {
+        "summary": "Ledige tider for bordreservasjon",
+        "description": "Returnerer en liste over 15-minutters slots for valgt dato + antall gjester. `available: true` betyr at minst ett bord passer. Slots utenfor åpningstid eller for sent i tid (etter `closesAt − serviceMinutes`) inkluderes ikke. Hvis restauranten ikke har bordreservasjon aktivert, returneres `enabled: false`. Rate-limit: 60/60s per (slug, ip). Cache: `s-maxage=15, stale-while-revalidate=30`.",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "description": "Dato i format YYYY-MM-DD, tolket som Oslo-tid.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "partySize",
+            "in": "query",
+            "required": false,
+            "description": "Antall gjester (default 2).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 2
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Slot-liste",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "maxPartySize": {
+                      "type": "integer"
+                    },
+                    "slots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "time": {
+                            "type": "string",
+                            "description": "HH:mm i Oslo-tid"
+                          },
+                          "iso": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "UTC ISO-string, send som dineInAt ved POST /api/v1/reservations"
+                          },
+                          "available": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ugyldig date eller partySize",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / invalid API key (and not from a trusted browser origin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restaurant not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate-limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/prep-time": {
+      "get": {
+        "summary": "Gjeldende tilberedningstid (inkl. rush), uten cache",
+        "description": "Grunntid + rushtid, ferdig summert — det kundesiden skal vise som «ca. X min» i meny og kasse. Finnes som eget endepunkt fordi `/restaurant` og `/menu` er CDN-cachet i opptil 5–11 minutter, og rush er nettopp tilstanden der forsinkelsen koster. Svaret er `no-store`. Kundesiden bør selv cache i 20–30 s og hente på nytt når kassen åpnes. Samme auth som resten av API-et (Bearer eller betrodd nettleser-origin), så kallet kan gjøres fra nettleseren på et verifisert kundedomene. Rate-limit 600/60s per (slug, ip).",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tilberedningstid nå",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "prepTime"
+                  ],
+                  "properties": {
+                    "prepTime": {
+                      "$ref": "#/components/schemas/PrepTime"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Mangler slug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler/ugyldig API-nøkkel eller ikke-betrodd origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restaurant not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate-limited (600/60s per slug+IP)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/site-gate": {
+      "get": {
+        "summary": "Passordgate-status for restaurantens egen nettside",
+        "description": "Forteller restaurantens egen nettside om forhåndsvisnings-passordgaten skal være på, og hvilket passord som gjelder. Ment for kall fra nettsidens middleware/server, slik at gaten kan skrus av fra LettBestilt-admin uten en redeploy.\n\n**Krever Bearer-nøkkel.** Til forskjell fra resten av /api/v1 godtas IKKE origin-basert nettleser-auth her — svaret bærer et passord, og det skal aldri kunne hentes ut fra en nettleser. `password` returneres kun når `enabled` er true. Ingen caching (`no-store`), så en gate som skrus av slår inn med én gang.\n\nSlug-oppslaget filtrerer bevisst ikke på `isActive`: en restaurant som ikke er satt live ennå er nettopp den som trenger gaten.",
+        "security": [
+          {
+            "BearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gate-status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "gate"
+                  ],
+                  "properties": {
+                    "gate": {
+                      "type": "object",
+                      "required": [
+                        "enabled"
+                      ],
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "password": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Kun til stede når enabled er true. null betyr at gaten er på uten passord satt — nettsiden skal da feile lukket."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Mangler slug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler/ugyldig API-nøkkel, eller kallet kom fra en nettleser-origin i stedet for med Bearer-nøkkel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restaurant not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate-limited (600/60s per IP)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reservations": {
+      "post": {
+        "summary": "Send bordreservasjon-forespørsel",
+        "description": "Oppretter en bordreservasjons-FORESPØRSEL. Restauranten godkjenner eller avslår fra dashbordet — kunden får en e-post når status endres. Returnerer `status: \"PENDING_APPROVAL\"` og `tableId: null`; bord tildeles først ved godkjenning. Bruk `publicToken` for å sjekke status via `GET /api/v1/orders/{token}`. Rate-limit: 20/60s per (slug, ip) — mer lempelig enn /api/v1/orders (10/60s) fordi en reservasjonsforespørsel er lav-innsats og staff-godkjent. Idempotency-Key (16–128 url-safe chars) støttes.",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "dineInAt",
+                  "partySize",
+                  "guestName"
+                ],
+                "properties": {
+                  "dineInAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO-8601 UTC (fra availability.iso)."
+                  },
+                  "partySize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50
+                  },
+                  "guestName": {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "guestEmail": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "Sterkt anbefalt — uten denne kan vi ikke varsle kunden ved godkjenning/avslag."
+                  },
+                  "guestPhone": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "marketingOptIn": {
+                    "type": "boolean",
+                    "description": "Samtykke til markedsføring. Krever guestEmail; samtykket lagres i restaurantens abonnentregister."
+                  },
+                  "consentGivenAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Valgfritt dokumentert samtykketidspunkt. Krever marketingOptIn: true; ellers bruker serveren mottakstidspunktet."
+                  },
+                  "locale": {
+                    "type": "string",
+                    "enum": [
+                      "nb",
+                      "en"
+                    ],
+                    "default": "nb"
+                  },
+                  "attributedCampaignId": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "description": "Kampanje-attribusjon: verdien av ?lb_campaign=<id> fra en LettBestilt-kampanjelenke. Reservasjonen telles som kampanje-konvertering. Valgfri metadata — malformet/fremmed id droppes stille og blokkerer aldri reservasjonen."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Forespørsel opprettet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reservationId": {
+                      "type": "string"
+                    },
+                    "publicToken": {
+                      "type": "string"
+                    },
+                    "orderNumber": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "PENDING_APPROVAL"
+                      ]
+                    },
+                    "dineInAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "partySize": {
+                      "type": "integer"
+                    },
+                    "tableId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Alltid null ved opprettelse. Tildeles når restauranten godkjenner."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Enten `IDEMPOTENCY_CONFLICT` i standard Error-konvolutt (samme nøkkel er brukt med annen payload/API-type), eller `ONLINE_BOOKING_CLOSED` i den historiske flate feilformen når restauranten har stengt online-booking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "error",
+                        "code"
+                      ],
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "ONLINE_BOOKING_CLOSED"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed / DINE_IN_DISABLED / TOO_EARLY / PARTY_TOO_LARGE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate-limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/newsletter/signup": {
+      "post": {
+        "summary": "Sign up to a restaurant's newsletter and get the welcome coupon",
+        "description": "Idempotent on (restaurantId, email). Repeated signups return the same coupon. Rate-limited 5/60s per IP. The popup must be enabled in the dashboard and linked to an active coupon — otherwise responds 404.",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 200
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 120
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subscriber upserted, welcome coupon issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "couponCode": {
+                      "type": "string"
+                    },
+                    "discountType": {
+                      "type": "string",
+                      "enum": [
+                        "PERCENT",
+                        "FIXED",
+                        "FREE_DELIVERY"
+                      ]
+                    },
+                    "discountValue": {
+                      "type": "integer"
+                    },
+                    "successMessage": {
+                      "type": "string",
+                      "description": "Restaurant-defined template. Replace {{code}} and {{discount}}."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid API key (and not from a trusted browser origin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restaurant not found, or popup not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coupons/preview-auto": {
+      "post": {
+        "summary": "Preview the best matching automatic promotion for a cart",
+        "description": "Returns the discount the server would apply at order-creation if no manual coupon code is used. Use this to render a 'Tilbud: −X kr' line in your cart summary. Server re-evaluates at `POST /api/v1/orders` so this is purely for display.",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "slug",
+                  "subtotal",
+                  "cart"
+                ],
+                "properties": {
+                  "slug": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "subtotal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Cart subtotal in øre."
+                  },
+                  "fulfillment": {
+                    "type": "string",
+                    "enum": [
+                      "PICKUP",
+                      "DELIVERY"
+                    ]
+                  },
+                  "deliveryFee": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "requestedPickupAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Optional. The pickup time the customer selected for a pre-order (same value you send as `requestedPickupAt` to `POST /api/v1/orders`). Day-of-week and time-of-day restrictions on the coupon (and its expiry) are evaluated against THIS moment, not the moment of the request — a Monday/Tuesday offer must not apply to an order placed on Tuesday for a Thursday pickup. Omit for as-soon-as-possible orders. Send the same value here and on the order, or the cart will show a discount the order rejects."
+                  },
+                  "cart": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "productId",
+                        "quantity",
+                        "lineTotal"
+                      ],
+                      "properties": {
+                        "productId": {
+                          "type": "string"
+                        },
+                        "categoryId": {
+                          "type": "string",
+                          "description": "Optional. If omitted the server resolves it from productId — convenient for clients that don't track categoryId on each line."
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Antall enheter på linja. Teller enheter for BUNDLE-tilbud («X for Y kr»)."
+                        },
+                        "variantName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "maxLength": 64,
+                          "description": "Required for FIXED_PRICE promotions with per-variant prices (e.g. 'Medium', 'Stor'); brukes også for BUNDLE-tilbud begrenset til en størrelse."
+                        },
+                        "lineTotal": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Unit price × quantity in øre, incl. addons."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preview result. Returns `applies: false, discount: 0` if no auto-promo matches.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "applies": {
+                          "const": true
+                        },
+                        "discount": {
+                          "type": "integer",
+                          "description": "Discount in øre."
+                        },
+                        "coupon": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "displayName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "discountType": {
+                              "type": "string",
+                              "enum": [
+                                "PERCENT",
+                                "FIXED",
+                                "FIXED_PRICE",
+                                "FREE_DELIVERY",
+                                "BUNDLE"
+                              ],
+                              "description": "Ukjente verdier: vis som generelt tilbud."
+                            },
+                            "discountValue": {
+                              "type": "integer",
+                              "description": "BUNDLE: pris i øre for én pakke på bundleQuantity enheter — ikke rabatten; vis `discount`."
+                            },
+                            "appliesTo": {
+                              "type": "string",
+                              "enum": [
+                                "ORDER",
+                                "CATEGORIES",
+                                "PRODUCTS"
+                              ]
+                            },
+                            "bundleQuantity": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "description": "Kun BUNDLE: enheter per pakke."
+                            },
+                            "bundleTierKey": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "description": "Kun BUNDLE: kun varianter med samme addonTierKey teller."
+                            },
+                            "maxBundlesPerOrder": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "description": "Kun BUNDLE: maks antall pakker."
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "applies": {
+                          "const": false
+                        },
+                        "discount": {
+                          "const": 0
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restaurant not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coupons/validate": {
+      "post": {
+        "summary": "Validate a coupon code",
+        "security": [
+          {
+            "BearerApiKey": []
+          },
+          {
+            "BrowserOrigin": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "slug",
+                  "code",
+                  "subtotal"
+                ],
+                "properties": {
+                  "slug": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "code": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "subtotal": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "fulfillment": {
+                    "type": "string",
+                    "enum": [
+                      "PICKUP",
+                      "DELIVERY"
+                    ],
+                    "description": "Optional. Pass to evaluate `WRONG_FULFILLMENT` correctly when the coupon is restricted to one fulfillment type."
+                  },
+                  "deliveryFee": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Optional. Delivery fee in øre — needed to evaluate FREE_DELIVERY coupons correctly."
+                  },
+                  "cart": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "description": "Optional for validate (unlike preview-auto, where it's required). Pass it when the coupon is scoped to specific products/categories, uses per-variant FIXED_PRICE pricing, or is a BUNDLE («X for Y kr») offer, so `NOT_APPLICABLE_TO_CART` can be evaluated correctly. A BUNDLE code without a cart is always `NOT_APPLICABLE_TO_CART`.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "productId",
+                        "categoryId",
+                        "lineTotal"
+                      ],
+                      "properties": {
+                        "productId": {
+                          "type": "string"
+                        },
+                        "categoryId": {
+                          "type": "string"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Antall enheter på linja. Teller enheter for BUNDLE-tilbud («X for Y kr»)."
+                        },
+                        "variantName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "maxLength": 64,
+                          "description": "Required for FIXED_PRICE promotions with per-variant prices (e.g. 'Medium', 'Stor'); brukes også for BUNDLE-tilbud begrenset til en størrelse."
+                        },
+                        "lineTotal": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Unit price × quantity in øre, incl. addons."
+                        }
+                      }
+                    }
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 200,
+                    "description": "Optional. Required when the coupon has `requiresSubscriber: true` — we look up the address in `MarketingSubscriber`. Omitting it returns `reason: SUBSCRIBER_ONLY`."
+                  },
+                  "requestedPickupAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Optional. The pickup time the customer selected for a pre-order (same value you send as `requestedPickupAt` to `POST /api/v1/orders`). Day-of-week and time-of-day restrictions on the coupon (and its expiry) are evaluated against THIS moment, not the moment of the request — a Monday/Tuesday offer must not apply to an order placed on Tuesday for a Thursday pickup. Omit for as-soon-as-possible orders. Send the same value here and on the order, or the cart will show a discount the order rejects."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result. Always 200 even when the coupon doesn't apply — see `valid: false` with one of the documented `reason` codes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "valid": {
+                          "const": true
+                        },
+                        "discount": {
+                          "type": "integer"
+                        },
+                        "coupon": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "displayName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "discountType": {
+                              "type": "string",
+                              "enum": [
+                                "PERCENT",
+                                "FIXED",
+                                "FIXED_PRICE",
+                                "FREE_DELIVERY",
+                                "BUNDLE"
+                              ],
+                              "description": "Ukjente verdier: vis som generelt tilbud."
+                            },
+                            "discountValue": {
+                              "type": "integer",
+                              "description": "BUNDLE: pris i øre for én pakke på bundleQuantity enheter — ikke rabatten; vis `discount`."
+                            },
+                            "minimumOrder": {
+                              "type": "integer"
+                            },
+                            "appliesTo": {
+                              "type": "string",
+                              "enum": [
+                                "ORDER",
+                                "CATEGORIES",
+                                "PRODUCTS"
+                              ]
+                            },
+                            "bundleQuantity": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "description": "Kun BUNDLE: enheter per pakke."
+                            },
+                            "bundleTierKey": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "description": "Kun BUNDLE: kun varianter med samme addonTierKey teller."
+                            },
+                            "maxBundlesPerOrder": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "description": "Kun BUNDLE: maks antall pakker."
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "valid": {
+                          "const": false
+                        },
+                        "discount": {
+                          "const": 0
+                        },
+                        "reason": {
+                          "type": "string",
+                          "description": "`NOT_APPLICABLE_TO_CART` gis også når et «X for Y kr»-tilbud (BUNDLE) har for få kvalifiserende varer i kurven.",
+                          "enum": [
+                            "UNKNOWN_OR_INACTIVE",
+                            "NOT_YET_VALID",
+                            "EXPIRED",
+                            "EXHAUSTED",
+                            "MINIMUM_NOT_MET",
+                            "WRONG_DAY",
+                            "WRONG_TIME",
+                            "WRONG_FULFILLMENT",
+                            "NOT_APPLICABLE_TO_CART",
+                            "SUBSCRIBER_ONLY",
+                            "ALREADY_REDEEMED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "Ferdig norsk forklaring som kan vises direkte til kunden (additivt felt, okt 2026). Skiller bl.a. «krever minst N varer» fra «gir ikke lavere pris» for BUNDLE, som begge har `reason: NOT_APPLICABLE_TO_CART`."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

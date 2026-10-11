@@ -1,0 +1,59 @@
+instances:
+  - url: lettbestilt.docs.buildwithfern.com
+    custom-domain: docs.lettbestilt.no
+
+title: LettBestilt API
+
+logo:
+  light: ./assets/logo-light.png
+  dark: ./assets/logo-dark.png
+  height: 28
+  href: https://www.lettbestilt.no
+
+favicon: ./assets/favicon.svg
+
+colors:
+  accent-primary:
+    light: "#1f3a4a"
+    dark: "#9cc3d5"
+
+navbar-links:
+  - type: minimal
+    text: lettbestilt.no
+    url: https://www.lettbestilt.no
+  - type: filled
+    text: Become a partner
+    url: https://www.lettbestilt.no/kontakt
+
+navigation:
+  - section: Get started
+    skip-slug: true
+    contents:
+      - page: Introduction
+        slug: introduction
+        path: ./pages/introduction.mdx
+      - page: Quickstart
+        slug: quickstart
+        path: ./pages/quickstart.mdx
+      - page: Authentication
+        slug: authentication
+        path: ./pages/authentication.mdx
+  - section: Guides
+    skip-slug: true
+    contents:
+      - page: Core concepts
+        slug: concepts
+        path: ./pages/concepts.mdx
+      - page: Payments
+        slug: payments
+        path: ./pages/payments.mdx
+      - page: Webhooks
+        slug: webhooks
+        path: ./pages/webhooks.mdx
+      - page: Errors, rate limits and idempotency
+        slug: errors
+        path: ./pages/errors.mdx
+      - page: Coupons and promotions
+        slug: coupons
+        path: ./pages/coupons.mdx
+  - api: API reference

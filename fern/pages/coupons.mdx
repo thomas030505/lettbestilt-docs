@@ -1,0 +1,39 @@
+---
+title: Coupons and promotions
+subtitle: Validate codes and preview automatic discounts
+---
+
+## Validate a coupon code
+
+`POST /coupons/validate` checks a code against the current cart. It always responds with `200`; read `valid` in the body.
+
+```json
+{ "valid": true, "discount": 5000, "coupon": { } }
+```
+
+```json
+{ "valid": false, "discount": 0, "reason": "MINIMUM_NOT_MET" }
+```
+
+The final discount is always recalculated when the order is created. Pass the code as `couponCode` on `POST /orders`.
+
+| `reason` | Meaning |
+|---|---|
+| `UNKNOWN_OR_INACTIVE` | The code does not exist or is turned off |
+| `NOT_YET_VALID` | The code's start date is in the future |
+| `EXPIRED` | The code has expired |
+| `EXHAUSTED` | The code has reached its usage limit |
+| `MINIMUM_NOT_MET` | The cart is below the minimum order amount |
+| `WRONG_FULFILLMENT` | The code is only valid for pickup or only for delivery |
+| `NOT_APPLICABLE_TO_CART` | The code only applies to products or categories that are not in the cart |
+| `WRONG_DAY` / `WRONG_TIME` | The code is restricted to certain days or times |
+| `SUBSCRIBER_ONLY` | The code requires an active newsletter subscriber, matched on `email` |
+| `ALREADY_REDEEMED` | The code is once per customer, and this `email` has used it |
+
+## Automatic promotions
+
+`POST /coupons/preview-auto` returns the best automatic promotion for a cart, so you can show "you save kr X" before checkout. Automatic promotions need no code; they are applied when the order is created.
+
+## Newsletter signup
+
+`POST /newsletter/signup` adds a customer to the restaurant's newsletter and returns the welcome coupon, if the restaurant has one.

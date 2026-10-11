@@ -1,0 +1,100 @@
+---
+title: Quickstart
+subtitle: Fetch a menu and place your first order
+---
+
+This guide takes you from an API key to a paid order. It uses plain `fetch`, so it works in any JavaScript or TypeScript backend.
+
+<Steps>
+
+### Get an API key
+
+API keys are issued per restaurant. Ask LettBestilt (or your partner contact) for a key for the restaurant you are building for. Keys start with `lbs_` and are shown only once.
+
+Store it as a server-side environment variable, for example `LETTBESTILT_API_KEY`. Never ship it to the browser.
+
+### Fetch the menu
+
+Call the menu endpoint from your server:
+
+```ts
+const slug = "pizzaroma";
+
+const res = await fetch(
+  `https://www.lettbestilt.no/api/v1/menu?slug=${slug}`,
+  { headers: { Authorization: `Bearer ${process.env.LETTBESTILT_API_KEY}` } },
+);
+const menu = await res.json();
+
+// menu.restaurant.capabilities tells you what this restaurant supports:
+// { pickup, delivery, reservations, payment: { online, cash } }
+```
+
+The response contains menus, categories, products (with variants, add-ons and allergens), coupons, promotions, opening hours and delivery zones. It is cached at the edge for a short time and supports `ETag` / `If-None-Match`.
+
+### Create an order
+
+Send the cart to the order endpoint. Prices are always recalculated on the server, so you only send IDs and quantities.
+
+```ts
+const res = await fetch(
+  `https://www.lettbestilt.no/api/v1/orders?slug=${slug}` +
+    `&successUrl=${encodeURIComponent("https://www.pizzaroma.no/takk?order={TOKEN}")}` +
+    `&cancelUrl=${encodeURIComponent("https://www.pizzaroma.no/kasse")}`,
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.LETTBESTILT_API_KEY}`,
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      items: [{ productId: "PRODUCT_ID", quantity: 2 }],
+      fulfillment: "PICKUP",
+      customerName: "Kari Nordmann",
+      customerEmail: "kari@example.com",
+      customerPhone: "+4799999999",
+      paymentMethod: "STRIPE", // online payment (card, Vipps, Klarna). Use "CASH" for pay at pickup.
+      locale: "nb",
+    }),
+  },
+);
+
+const order = await res.json();
+// { orderId, publicToken, totals, stripeUrl? }
+```
+
+### Send the customer to payment
+
+For online payment the response includes `stripeUrl`, a hosted payment page where the customer picks card, Vipps or another method. Redirect the customer there. After payment they come back to your `successUrl`, with `{TOKEN}` replaced by the order's `publicToken`.
+
+```ts
+if (order.stripeUrl) {
+  return Response.redirect(order.stripeUrl, 303);
+}
+// Cash order: show a confirmation page right away.
+```
+
+<Note>
+The field is called `stripeUrl` for historical reasons. Payments run through SagaPay.
+</Note>
+
+### Track the order
+
+Use the public token to show live status on your own confirmation page:
+
+```ts
+const status = await fetch(
+  `https://www.lettbestilt.no/api/v1/orders/${order.publicToken}`,
+).then((r) => r.json());
+```
+
+This endpoint needs no API key; the token itself is the secret. To be told about changes instead of polling, set up [webhooks](/webhooks).
+
+</Steps>
+
+## Before you go live
+
+- `successUrl` and `cancelUrl` must point to the restaurant's verified domain (or LettBestilt). Ask us to verify the domain your site runs on.
+- Read the [restaurant's capabilities](/concepts#capabilities) instead of hard-coding which options to show.
+- Show the preparation time from [`/prep-time`](/concepts#preparation-time), not from cached menu data, so rush mode is reflected.

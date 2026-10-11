@@ -1,0 +1,47 @@
+---
+title: Authentication
+subtitle: API keys for servers, verified domains for browsers
+---
+
+Every endpoint except order tracking needs one of two kinds of authentication.
+
+## API key (server to server)
+
+Send the restaurant's API key as a bearer token:
+
+```http
+Authorization: Bearer lbs_...
+```
+
+- Keys are issued **per restaurant** and start with `lbs_`.
+- The full key is shown only once, when it is created or rotated. LettBestilt stores only a hash.
+- Rotating a key invalidates the old one immediately, so deploy the new key before you rotate in production.
+- Use the key from your **server** for all calls, including reading the menu.
+
+<Warning>
+Never put an API key in browser code. Anything in a client bundle is public.
+</Warning>
+
+## Verified domain (browser)
+
+If your site needs to call the API directly from the browser (for example to validate a coupon as the customer types), the request can be authenticated by its `Origin` instead of a key.
+
+This works when the `Origin` header is one of:
+
+- the restaurant's own LettBestilt subdomain, `https://{slug}.lettbestilt.no`
+- a **verified custom domain** registered for that restaurant, for example `https://www.pizzaroma.no`
+
+Browsers set `Origin` automatically; you do not configure anything in your code. Ask LettBestilt to verify each domain your site runs on (both the bare domain and `www` if you use both). Only `https` origins are accepted.
+
+A verified domain also:
+
+- allows the domain through CORS
+- allows it as `successUrl` and `cancelUrl` when creating orders
+
+## Which endpoints need what
+
+| Endpoint | Auth |
+|---|---|
+| `GET /orders/{token}` | None. The token is the secret |
+| `GET /site-gate` | API key only |
+| Everything else | API key **or** verified domain |

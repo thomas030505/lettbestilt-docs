@@ -1,0 +1,50 @@
+---
+title: Core concepts
+subtitle: The conventions every endpoint follows
+---
+
+## Money is in øre
+
+All amounts are integers in øre: `1 NOK = 100 øre`, so `12900` means kr 129,00. The server recalculates every price and total. Prices you send are ignored; show the `totals` the API returns.
+
+## Time is UTC
+
+Timestamps are ISO 8601 in UTC, for example `2026-10-11T16:30:00.000Z`. Restaurants operate in Norway, so format times for display in the `Europe/Oslo` time zone.
+
+## Restaurants are identified by slug
+
+Pass `slug` as a query parameter. The internal restaurant ID is never part of the public contract.
+
+## Orders have a public token
+
+`POST /orders` returns both `orderId` and `publicToken`.
+
+- `publicToken` is safe to put in URLs and share with the customer. Use it for tracking.
+- `orderId` is internal. Keep it for support requests, but do not build URLs with it.
+
+## Capabilities
+
+`/menu` and `/restaurant` include `restaurant.capabilities`:
+
+```json
+{
+  "pickup": true,
+  "delivery": false,
+  "reservations": true,
+  "payment": { "online": true, "cash": true }
+}
+```
+
+Read this object instead of keeping your own feature flags. It reflects the restaurant's settings, so your site never offers a flow the order endpoint would reject. `payment.online` covers card, Vipps and other methods on the hosted payment page.
+
+## Preparation time
+
+The restaurant can turn on rush mode, which adds minutes to the estimated preparation time. `GET /prep-time` returns base time plus rush, already summed, and is never cached. Use it for "ready in about X minutes" on your site. The same value is on `restaurant.prepTime` in `/menu`, but that response is cached for a few minutes.
+
+## Address
+
+`restaurant.address` is the restaurant's visiting address, or `null` if it has none. It is never an object with empty fields, so `address ?? yourFallback` works. `latitude` and `longitude` are either both set or both `null`.
+
+## Language
+
+Set `locale` to `nb` (default) or `en` when creating orders. It controls the language of emails sent to the customer.

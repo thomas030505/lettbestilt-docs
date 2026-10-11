@@ -1,0 +1,60 @@
+---
+title: Errors, rate limits and idempotency
+subtitle: What can go wrong and how to retry safely
+---
+
+## Error format
+
+Errors use one envelope:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Human-readable explanation",
+    "details": {}
+  }
+}
+```
+
+Branch on `code`, not on `message`. `details` is optional and only present for some codes.
+
+| Code | Typical status | Meaning |
+|---|---|---|
+| `MISSING_SLUG` | 400 | The `slug` query parameter is missing |
+| `INVALID_JSON` | 400 | The request body is not valid JSON |
+| `BAD_REQUEST` | 400 | The request is malformed, for example an invalid `Idempotency-Key` |
+| `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | 400 | Return URL is not on a verified domain |
+| `UNAUTHORIZED` | 401 | Missing or wrong API key, and the origin is not verified |
+| `FORBIDDEN` | 403 | Authenticated, but not allowed |
+| `RESTAURANT_NOT_FOUND` / `ORDER_NOT_FOUND` | 404 | Unknown slug or token |
+| `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has both amounts |
+| `IDEMPOTENCY_CONFLICT` | 409 | The same `Idempotency-Key` was used with a different request |
+| `PAYMENT_PENDING` | 409 | The order exists but the payment link is still being created. Retry shortly |
+| `PAYMENT_INCOMPLETE` | 409 | The order exists but has no payment link. Start a new order |
+| `VALIDATION_FAILED` | 422 | The body failed validation. `details` lists the fields |
+| `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY`, `NO_TABLE`, `INVALID_PARTY_SIZE` | 4xx | Reservation-specific rejections |
+| `RATE_LIMITED` | 429 | Too many requests. See `Retry-After` |
+| `PAYMENT_PROVIDER_INVALID` | 502 | The payment provider returned something unusable |
+| `INTERNAL_ERROR` | 500 | Something broke on our side |
+
+## Rate limits
+
+Limits are applied per restaurant and client IP. Responses from rate-limited endpoints include:
+
+| Header | Meaning |
+|---|---|
+| `X-RateLimit-Limit` | Requests allowed in the window |
+| `X-RateLimit-Remaining` | Requests left in the window |
+| `X-RateLimit-Reset` | Unix time in seconds when the window resets |
+| `Retry-After` | Seconds to wait (only on `429`) |
+
+Creating orders is the strictest limit (10 per minute per restaurant and IP). Read the headers rather than hard-coding limits, as they may change.
+
+## Idempotency
+
+`POST /orders` and `POST /reservations` accept an `Idempotency-Key` header: 16 to 128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`). A UUID works well.
+
+- Sending the same key with the same body returns the original order instead of creating a new one. Retry network failures with the same key.
+- Sending the same key with a **different** body returns `409 IDEMPOTENCY_CONFLICT`.
+- Keys are scoped per restaurant.

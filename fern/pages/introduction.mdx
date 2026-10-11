@@ -1,0 +1,48 @@
+---
+title: Introduction
+subtitle: Online ordering for restaurant websites, as an API
+---
+
+LettBestilt is the ordering engine behind restaurant websites in Norway. You build the website; we run menus, orders, payments, kitchen tickets and reservations.
+
+With the public API you can:
+
+- **Show the live menu**: categories, products, variants, add-ons, allergens, opening hours and delivery zones.
+- **Take orders** for pickup or delivery, paid online through a hosted payment page (card, Vipps and the other methods the restaurant has enabled) or in cash.
+- **Track orders** with a public token, so customers can follow their order on your site.
+- **Take table reservations** and check availability.
+- **Validate coupons**, preview automatic promotions and sign customers up for the restaurant's newsletter.
+- **Receive webhooks** when orders are created, paid, change status or are cancelled.
+
+Everything the restaurant changes in its LettBestilt dashboard (prices, sold-out items, opening hours, rush mode) shows up through the API right away. Your site never needs to hard-code menu data.
+
+## Base URL
+
+```
+https://www.lettbestilt.no/api/v1
+```
+
+<Warning>
+Always use `www.lettbestilt.no`. The bare domain `lettbestilt.no` redirects to `www`, and redirects drop the `Authorization` header.
+</Warning>
+
+## How a restaurant is identified
+
+Every request names the restaurant with the `slug` query parameter, for example `?slug=pizzaroma`. The slug is the restaurant's subdomain on LettBestilt (`pizzaroma.lettbestilt.no`).
+
+## Next steps
+
+<Cards>
+  <Card title="Quickstart" href="/quickstart">
+    Fetch a menu and place your first order.
+  </Card>
+  <Card title="Authentication" href="/authentication">
+    API keys and verified domains.
+  </Card>
+  <Card title="Webhooks" href="/webhooks">
+    Get notified about orders in real time.
+  </Card>
+  <Card title="API reference" href="/api-reference">
+    Every endpoint, with request and response schemas.
+  </Card>
+</Cards>
