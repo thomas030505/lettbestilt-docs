@@ -1,0 +1,1911 @@
+# Presentation layer for the API reference.
+#
+# `openapi.json` next to this file is a verbatim copy of the platform's spec
+# (`src/app/api/v1/openapi.json/route.ts`) and is meant to be synced
+# automatically. Never edit it by hand. Everything the docs need on top of it
+# lives here: English text, tags, operation IDs, examples, missing error
+# responses and the webhook reference.
+#
+# How Fern merges this file into the spec (fern-api 5.152.2):
+# - Objects are deep-merged; keys here win.
+# - `parameters` are matched by `in` + `name`, so order does not matter.
+# - Other arrays of objects (`oneOf`, `servers`) are merged by index.
+# - Arrays of plain values (`enum`, `tags`, `required`) are replaced.
+#
+# When the platform spec gets the same text, delete it here.
+
+info:
+  title: LettBestilt API
+  description: >-
+    The LettBestilt API lets you build restaurant websites on top of
+    LettBestilt: menus, orders, payments, order tracking, table reservations,
+    coupons and webhooks. All amounts are integers in øre (1 NOK = 100 øre).
+    Timestamps are ISO 8601 in UTC. The restaurant is identified by its `slug`.
+
+# The platform spec points at the bare domain, which redirects to www and
+# drops the Authorization header on the way.
+servers:
+  - url: https://www.lettbestilt.no
+    description: Production
+
+tags:
+  - name: Restaurant and menu
+    description: >-
+      The restaurant's profile, capabilities, menu and current preparation
+      time.
+  - name: Orders
+    description: Create takeaway orders, track them and look up delivery addresses.
+  - name: Reservations
+    description: Offer reservation times and send table reservation requests.
+  - name: Coupons and newsletter
+    description: >-
+      Validate coupon codes, preview automatic promotions and sign customers up
+      for the restaurant's newsletter.
+  - name: Website
+    description: Settings for the restaurant's own website.
+  - name: Webhooks
+    description: >-
+      Events LettBestilt sends to your endpoint. Every delivery is signed; see
+      the [webhooks guide](/webhooks) for how to verify it.
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Restaurant and menu
+  # ---------------------------------------------------------------------------
+  /api/v1/restaurant:
+    get:
+      operationId: getRestaurant
+      tags: [Restaurant and menu]
+      summary: Get the restaurant
+      description: |-
+        Returns the restaurant's public profile: name, branding (logo, colors, font), contact details, visiting address, capabilities, current preparation time and the newsletter popup. Use it for headers, footers and contact pages; it is much smaller than `GET /menu`.
+
+        - `restaurant.capabilities` is the stable, dashboard-controlled answer to what the restaurant offers: pickup, delivery, reservations and payment. The older `restaurant.payment` object is kept for existing clients.
+        - `restaurant.address` is the visiting address, or `null`. See `Address`.
+        - `restaurant.newsletterPopup` is set when the popup is enabled and linked to an active coupon, otherwise `null`. The coupon code is never included here; `POST /newsletter/signup` returns it.
+        - `restaurant.prepTime` includes rush, but this response is cached at the edge (60 s, plus 600 s stale-while-revalidate). Show the number from `GET /prep-time` in checkout.
+        - `defaultPrepMinutes` and `defaultDeliveryMinutes` are base times **without** rush. Do not show them directly.
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug, which is also its LettBestilt subdomain (`{slug}.lettbestilt.no`).
+      responses:
+        "200":
+          description: The restaurant.
+          content:
+            application/json:
+              schema:
+                description: >-
+                  Only some fields are described here. The payload also includes
+                  `id`, `name`, `slug`, `description`, `cuisineType`, `currency`,
+                  `locale`, logo, favicon, cover image, colors, `fontFamily`,
+                  `email`, `phone`, `website`, `googleReviewUrl`, the verified
+                  `tenantDomains`, `payment` and `newsletterPopup`.
+                properties:
+                  restaurant:
+                    x-fern-type-name: Restaurant
+        "400":
+          description: "`MISSING_SLUG`: the `slug` query parameter is missing."
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+
+  /api/v1/menu:
+    get:
+      operationId: getMenu
+      tags: [Restaurant and menu]
+      summary: Get the menu
+      description: |-
+        Returns everything a menu page and checkout need in one call: the restaurant (branding, capabilities, opening hours, special opening hours, delivery zones and shared add-on groups), the active menus, categories with products, variants, add-ons and allergens, code-based coupons, automatic promotions, the allergen list and upsell products.
+
+        **Only what can be ordered now.** `menus` and `categories` contain only the menus that are active when the response is built: the validity period (`startsOn`/`endsOn`) is checked first, then the schedules, and the default menu is the fallback. `upsell.products` is filtered the same way. Products and add-ons the restaurant has hidden or marked unavailable are left out.
+
+        **Two sets of opening hours.** `restaurant.openingHours` are the kitchen's hours and the only set that decides whether an order is accepted. Always gate the ordering flow on these. `restaurant.venueHours` are the venue's hours (when the doors are open) and are for display only. An empty `venueHours` means the venue follows the kitchen; show `openingHours` instead.
+
+        **Caching.** The response is cached at the edge (30 s, plus 300 s stale-while-revalidate) and carries a weak `ETag`. Send it back in `If-None-Match` to get `304 Not Modified`. Because of the cache, show the preparation time from `GET /prep-time`, not from `restaurant.prepTime`.
+
+        **Address.** `restaurant.address` is the visiting address, or `null`: the same object as in `GET /restaurant`. Use it on the contact page and for `address` and `geo` in Restaurant JSON-LD.
+
+        **Allergens.** `products[].allergens` are codes. Look them up in the top-level `allergens` list, which always comes in the same order.
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug, which is also its LettBestilt subdomain (`{slug}.lettbestilt.no`).
+        - name: If-None-Match
+          in: header
+          description: The `ETag` from an earlier response. If the menu has not changed, the response is `304 Not Modified` with no body.
+      responses:
+        "200":
+          description: The menu, with a weak `ETag` and `Cache-Control` headers.
+          content:
+            application/json:
+              schema:
+                description: >-
+                  Only some fields are described here. The full payload also
+                  includes `allergens`, `restaurant.deliveryZones`,
+                  `restaurant.hoursOverrides` (special opening hours),
+                  `restaurant.addonGroups`, branding, contact details and the
+                  texts for the tracking page and receipt.
+                properties:
+                  restaurant:
+                    x-fern-type-name: MenuRestaurant
+                    properties:
+                      openingHours:
+                        description: >-
+                          The kitchen's opening hours. The only set that gates
+                          ordering: the server rejects an order outside these
+                          hours.
+                      venueHours:
+                        description: >-
+                          The venue's opening hours (when the doors are open).
+                          Display only: never use them to decide whether
+                          ordering is possible. An empty array means the venue
+                          follows the kitchen, so show `openingHours` instead.
+                  menus:
+                    description: >-
+                      Only menus that are active when the response is built
+                      (validity period, then schedule, then the default menu as
+                      fallback). The response is cached at the edge, so also
+                      hide a menu on the client when today's date in Oslo is
+                      before `startsOn` or after `endsOn`. A missing field means
+                      no limit.
+                  categories:
+                    description: Top-level categories on the active menus, with their products.
+                    items:
+                      x-fern-type-name: Category
+                  coupons:
+                    description: >-
+                      Code-based coupons, without the code itself. The customer
+                      types the code; `POST /coupons/validate` checks it.
+                  promotions:
+                    description: >-
+                      Automatic promotions. Show them as banners; the server
+                      applies the best match when the order is created.
+                  upsell:
+                    x-fern-type-name: Upsell
+                    description: >-
+                      Products the restaurant wants to suggest in the cart, or
+                      `null` if upsell is not set up. `mode` tells whether the
+                      list is picked by popularity or by hand.
+                    properties:
+                      products:
+                        description: >-
+                          Only active, available products on menus that are
+                          active now. (Before October 2026, products on inactive
+                          menus were also returned.)
+                        items:
+                          x-fern-type-name: UpsellProduct
+                          properties:
+                            allowedFulfillment:
+                              description: Same as `Product.allowedFulfillment`. `null` means both.
+        "304":
+          description: "Not modified: the `If-None-Match` ETag matched."
+        "400":
+          description: "`MISSING_SLUG`: the `slug` query parameter is missing."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+
+  /api/v1/prep-time:
+    get:
+      operationId: getPrepTime
+      tags: [Restaurant and menu]
+      summary: Get the preparation time
+      description: |-
+        Returns the current preparation time: base time plus rush, already added up. This is the number to show as "ready in about X min" on the menu and in checkout, and exactly what `POST /orders` uses to set `estimatedReadyAt` on an as-soon-as-possible order.
+
+        It is a separate endpoint because `/restaurant` and `/menu` are cached at the edge for up to 5–11 minutes, and rush is exactly when that delay hurts. This response is never cached (`no-store`). Cache it yourself for 20–30 seconds, and fetch it again when checkout opens.
+
+        Same authentication as the rest of the API (API key or trusted browser origin), so you can call it from the browser on a verified domain. Rate limit: 600 requests per 60 seconds per slug and IP.
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug.
+      responses:
+        "200":
+          description: The current preparation time.
+          content:
+            application/json:
+              example:
+                prepTime:
+                  pickupMinutes: 35
+                  deliveryMinutes: 60
+                  rushDelayMinutes: 15
+                  basePickupMinutes: 20
+                  baseDeliveryMinutes: 45
+        "400":
+          description: "`MISSING_SLUG`: the `slug` query parameter is missing."
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+        "429":
+          description: "`RATE_LIMITED`: more than 600 requests in 60 seconds for this slug and IP."
+
+  # ---------------------------------------------------------------------------
+  # Orders
+  # ---------------------------------------------------------------------------
+  /api/v1/orders:
+    post:
+      operationId: createOrder
+      tags: [Orders]
+      summary: Create an order
+      description: |-
+        Creates a takeaway order for pickup or delivery. The server prices every line from its own data and ignores any prices you send. Show the `totals` it returns.
+
+        - **Online payment** (`paymentMethod: "STRIPE"`): the response includes `stripeUrl`, SagaPay's hosted payment page. Redirect the customer there. The field name is historical and does not mean Stripe.
+        - **Cash** (`paymentMethod: "CASH"`): there is no payment link, and the order goes straight to the kitchen.
+        - **Retries**: send an `Idempotency-Key` header and retry with the same key after a network error. A replay returns the original order instead of creating a new one.
+        - **Price check**: send `expectedTotal`, the total you showed the customer, to get `409 PRICE_CHANGED` instead of an order at a higher price.
+
+        Business rules are checked here as well: opening hours, menu schedules, sold-out products, required add-ons, delivery zones and coupon rules. When one fails, `error.message` explains it in Norwegian and can be shown to the customer.
+
+        Table reservations are not orders. `orderType` only accepts `TAKEAWAY`, and `DINE_IN` fails with `422 VALIDATION_FAILED`; use `POST /reservations` instead.
+
+        Rate limit: 10 requests per 60 seconds per slug and IP. Walkthrough: [Build an ordering flow](/build-an-ordering-flow).
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug.
+        - name: successUrl
+          in: query
+          description: >-
+            Where the customer returns after paying. Put `{TOKEN}` in the URL to
+            get the order's `publicToken` back, for example
+            `https://www.pizzaroma.no/order/{TOKEN}`. Must be `https` on a
+            verified domain or on lettbestilt.no; anything else fails with
+            `400 INVALID_SUCCESS_URL`. If you leave it out, the customer returns
+            to `/order/{TOKEN}?payment=success` on the restaurant's domain.
+        - name: cancelUrl
+          in: query
+          description: >-
+            Where the customer returns if they cancel or the payment fails. Same
+            rules as `successUrl` (`400 INVALID_CANCEL_URL`). If you leave it
+            out, the customer returns to the front page of the restaurant's own
+            domain, or to checkout on `{slug}.lettbestilt.no`.
+        - name: Idempotency-Key
+          in: header
+          description: >-
+            Optional. 16–128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`,
+            `-`); a UUID works well. A request with a key that was already used
+            for this restaurant returns that earlier order and its payment link
+            instead of creating a new one. The body of the replay is not
+            compared, so create a new key for every new checkout attempt.
+      requestBody:
+        content:
+          application/json:
+            example:
+              items:
+                - productId: cm1pza0001margherita
+                  variantId: cm1pza0002medium
+                  addonIds: [cm1pza0003extracheese]
+                  quantity: 2
+                  notes: Godt stekt
+              fulfillment: PICKUP
+              customerName: Kari Nordmann
+              customerEmail: kari@example.com
+              customerPhone: "+4799999999"
+              paymentMethod: STRIPE
+              expectedTotal: 33800
+              locale: nb
+      responses:
+        "200":
+          description: The order was created, or an earlier order was returned for the same `Idempotency-Key`.
+          content:
+            application/json:
+              example:
+                orderId: cm2ord0001abcdefghijklmn
+                publicToken: cm2tok0001abcdefghijklmn
+                totals:
+                  subtotal: 33800
+                  deliveryFee: 0
+                  discount: 0
+                  total: 33800
+                  currency: NOK
+                stripeUrl: https://pay.example.com/checkout/abc123
+        "400":
+          description: >-
+            `MISSING_SLUG`, `INVALID_JSON`, `INVALID_SUCCESS_URL`,
+            `INVALID_CANCEL_URL`, or `BAD_REQUEST`: an invalid `Idempotency-Key`,
+            the restaurant is closed at the requested time, or it does not offer
+            the chosen fulfillment or payment method.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >-
+            No new order was created, and `publicToken` is never returned.
+            `PRICE_CHANGED`: you sent `expectedTotal` and the server's total is
+            higher; `error.details` is `{ expectedTotal, actualTotal, currency }`.
+            Fetch the menu again, show the new total and let the customer
+            confirm. `PAYMENT_PENDING`: a replay of an `Idempotency-Key` whose
+            order was just created while its payment link is still being made;
+            wait a couple of seconds and retry with the same key.
+            `PAYMENT_INCOMPLETE`: the same, but the order is too old for the
+            first call to still be running, so the payment link was never created
+            (`error.details` is `{ orderId }`); start again with a new key.
+        "422":
+          description: >-
+            `VALIDATION_FAILED`: the body failed validation
+            (`error.details.issues` lists the fields), or the order breaks a
+            rule, such as a sold-out product, a missing required add-on, an
+            address outside the delivery zones or a coupon that does not apply;
+            `error.message` explains it in Norwegian. `FULFILLMENT_NOT_ALLOWED`:
+            a product can only be picked up or only be delivered, and the order
+            asked for the other; `error.details` is `{ productId, productName,
+            allowedFulfillment, requestedFulfillment }`.
+        "429":
+          description: "`RATE_LIMITED`: more than 10 orders in 60 seconds for this slug and IP. See `Retry-After`."
+        "502":
+          description: "`PAYMENT_PROVIDER_INVALID`: the payment provider returned an unusable payment link."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: >-
+            `INTERNAL_ERROR`: the payment provider did not respond. The order was
+            saved without a payment link. Start again with a new
+            `Idempotency-Key`, or offer cash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/orders/{token}:
+    get:
+      operationId: getOrder
+      tags: [Orders]
+      summary: Track an order
+      description: |-
+        Returns an order by its `publicToken`: status, lines, totals, times and payment status. No API key is needed, because the token is the secret. Share it only with the customer.
+
+        If an online order is still waiting for payment, the server checks with the payment provider before it responds. Polling this endpoint after the customer returns to your `successUrl` therefore gives you a reliable payment status.
+
+        `order.status` follows this path:
+
+        - Online payment: `AWAITING_PAYMENT` → `PAID` → `CONFIRMED` → `PREPARING` → `READY_FOR_PICKUP` (pickup) or `OUT_FOR_DELIVERY` (delivery) → `COMPLETED`.
+        - Cash: starts at `CONFIRMED`.
+        - `CANCELLED` if the restaurant cancels the order. `FAILED` if the online payment failed.
+        - Reservation tokens from `POST /reservations` work here too: `PENDING_APPROVAL`, then `CONFIRMED` or `CANCELLED`.
+
+        `order.restaurant.address` is the pickup location: the restaurant's visiting address, or `null`. If you render a map, check both `order.restaurant.trackingShowMap` and `address.latitude`: the owner can turn the map off, and a restaurant without a map point has no coordinates.
+
+        The response is `private, no-store`. Rate limits: 60 requests per 60 seconds per IP, and 30 per 60 seconds per token.
+      parameters:
+        - name: token
+          in: path
+          description: The `publicToken` from `POST /orders` or `POST /reservations`.
+      responses:
+        "200":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                description: >-
+                  Only some fields are described here. The payload contains the
+                  whole order: `status`, `orderNumber`, `fulfillment`, the lines
+                  in `items`, `subtotal`, `deliveryFee`, `discount`, `total`,
+                  `estimatedReadyAt`, delivery details, the customer's name and
+                  `payment` (provider, status, amount).
+                properties:
+                  order:
+                    x-fern-type-name: Order
+                    properties:
+                      requestedPickupAt:
+                        description: >-
+                          The agreed pickup or delivery time, and the time to show
+                          the customer. The restaurant can move it after the
+                          order is placed: if `pickupTimeRevisedAt` is set, this
+                          is no longer the time the customer chose.
+                      originalRequestedPickupAt:
+                        description: >-
+                          The time the customer originally chose, frozen the
+                          first time the restaurant moves it. `null` means the
+                          time has never been moved.
+                      pickupTimeRevisedAt:
+                        description: >-
+                          When the restaurant last moved the time: either the
+                          agreed time on a pre-order (`requestedPickupAt`) or,
+                          during rush, the estimated ready time on an
+                          as-soon-as-possible order (`estimatedReadyAt`, and then
+                          `originalRequestedPickupAt` is `null`). Use it to show
+                          "the restaurant has changed the time" instead of
+                          changing the time silently. `null` means never moved.
+                      restaurant:
+                        x-fern-type-name: OrderRestaurant
+                        properties:
+                          trackingShowMap:
+                            description: The owner's setting for whether the tracking page shows a map to the pickup location.
+        "400":
+          description: "`MISSING_TOKEN`: the token is not in a valid format."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "`ORDER_NOT_FOUND`: no order has this token."
+        "429":
+          description: "`RATE_LIMITED`: too many requests from this IP or for this token."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/address-search:
+    get:
+      operationId: searchAddresses
+      tags: [Orders]
+      summary: Search delivery addresses
+      description: |-
+        Searches Norwegian addresses (from Kartverket) for your checkout. Use the coordinates as `deliveryLat` and `deliveryLng` for radius-based delivery zones (`RADIUS`), and the postal code as `deliveryPostalCode` for postal-code zones (`POSTAL_CODES`).
+
+        If the restaurant does not offer delivery, `hits` is empty. Rate limit: 30 requests per 60 seconds per IP.
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug.
+        - name: q
+          in: query
+          description: What the customer typed, 3–100 characters. For example a street name and number.
+      responses:
+        "200":
+          description: Matching addresses.
+          content:
+            application/json:
+              example:
+                hits:
+                  - label: Storgata 1, 3126 Tønsberg
+                    street: Storgata 1
+                    postalCode: "3126"
+                    city: Tønsberg
+                    lat: 59.2676
+                    lng: 10.4076
+        "400":
+          description: "`MISSING_SLUG`, or `BAD_REQUEST` when `q` is shorter than 3 or longer than 100 characters."
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: "`RATE_LIMITED`: more than 30 searches in 60 seconds from this IP."
+        "502":
+          description: "`INTERNAL_ERROR`: the address lookup failed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ---------------------------------------------------------------------------
+  # Reservations
+  # ---------------------------------------------------------------------------
+  /api/v1/dine-in/availability:
+    get:
+      operationId: getReservationAvailability
+      tags: [Reservations]
+      summary: List available reservation times
+      description: |-
+        Returns the reservation times for one date and party size, in 15-minute slots. `available: true` means at least one table, or combination of tables, that can be booked online fits the party at that time.
+
+        Slots are left out when they are outside opening hours, too late in the day (after closing time minus the restaurant's service time), inside the restaurant's minimum notice, or after the restaurant has closed online booking for that day. A party larger than `maxPartySize` gets an empty list.
+
+        If the restaurant does not take table reservations, the response is `{ "enabled": false, "slots": [] }`.
+
+        Rate limit: 60 requests per 60 seconds per slug and IP. Cached at the edge for 15 seconds (plus 30 s stale-while-revalidate). Walkthrough: [Table reservations](/reservations).
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug.
+        - name: date
+          in: query
+          description: The date as `YYYY-MM-DD`, in Oslo time.
+        - name: partySize
+          in: query
+          description: Number of guests. Defaults to 2.
+      responses:
+        "200":
+          description: The slots for the date.
+          content:
+            application/json:
+              schema:
+                properties:
+                  enabled:
+                    description: Whether the restaurant takes table reservations.
+                  maxPartySize:
+                    description: The largest party that can book online. Only present when `enabled` is `true`.
+                  slots:
+                    items:
+                      x-fern-type-name: ReservationSlot
+                      properties:
+                        time:
+                          description: Start time as `HH:mm` in Oslo time, for display.
+                        iso:
+                          description: Start time in UTC (ISO 8601). Send this as `dineInAt` to `POST /reservations`.
+                        available:
+                          description: Whether a table is free for the party at this time.
+              example:
+                enabled: true
+                maxPartySize: 8
+                slots:
+                  - time: "17:00"
+                    iso: "2026-10-16T15:00:00.000Z"
+                    available: true
+                  - time: "17:15"
+                    iso: "2026-10-16T15:15:00.000Z"
+                    available: false
+        "400":
+          description: "`MISSING_SLUG`, or `BAD_REQUEST` for an invalid `date` or `partySize`."
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+        "429":
+          description: "`RATE_LIMITED`: more than 60 requests in 60 seconds for this slug and IP."
+
+  /api/v1/reservations:
+    post:
+      operationId: createReservation
+      tags: [Reservations]
+      summary: Request a table reservation
+      description: |-
+        Creates a table reservation **request**. The restaurant approves or rejects it from its dashboard, and the guest gets an email when that happens (if you sent `guestEmail`). A new request always has `status: "PENDING_APPROVAL"` and `tableId: null`; the table is assigned on approval.
+
+        Follow the status with `GET /orders/{token}` using `publicToken`, or listen for the `RESERVATION_APPROVED` and `RESERVATION_REJECTED` webhooks. `reservationId` is the ID that webhooks call `orderId`.
+
+        The server checks the party size, the minimum notice and whether online booking is open. It does not check the time against opening hours or existing bookings, so only offer times from `GET /dine-in/availability`.
+
+        `Idempotency-Key` is supported. A replay with the same key and the same body returns the existing request with status `200` and `idempotent: true`; the same key with a different body returns `409 IDEMPOTENCY_CONFLICT`.
+
+        Rate limit: 20 requests per 60 seconds per slug and IP. Walkthrough: [Table reservations](/reservations).
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug.
+        - name: Idempotency-Key
+          in: header
+          description: Optional. 16–128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                dineInAt:
+                  description: Start time in UTC (ISO 8601). Use `iso` from `GET /dine-in/availability`.
+                partySize:
+                  description: Number of guests.
+                guestName:
+                  description: The guest's name.
+                guestEmail:
+                  description: >-
+                    Strongly recommended. Without it, the guest cannot be told
+                    when the request is approved or rejected.
+                guestPhone:
+                  description: The guest's phone number.
+                note:
+                  description: A note to the restaurant, for example about allergies or a high chair.
+                marketingOptIn:
+                  description: >-
+                    The guest's consent to marketing. Requires `guestEmail`; the
+                    consent is stored in the restaurant's subscriber list.
+                consentGivenAt:
+                  description: >-
+                    Optional. When the guest gave consent. Only allowed with
+                    `marketingOptIn: true`. If you leave it out, the server uses
+                    the time it received the request.
+                locale:
+                  description: Language of the emails to the guest.
+                attributedCampaignId:
+                  description: >-
+                    Campaign attribution: the value of `?lb_campaign=<id>` from a
+                    LettBestilt campaign link. The reservation counts as a
+                    conversion for that campaign. Optional metadata: an invalid
+                    or unknown ID is dropped silently and never blocks the
+                    reservation. Note that orders call this field
+                    `attributionCampaignId`.
+            example:
+              dineInAt: "2026-10-16T15:00:00.000Z"
+              partySize: 4
+              guestName: Kari Nordmann
+              guestEmail: kari@example.com
+              guestPhone: "+4799999999"
+              note: Én barnestol, takk
+              locale: nb
+      responses:
+        "201":
+          description: The request was created.
+          content:
+            application/json:
+              schema:
+                properties:
+                  reservationId:
+                    description: The reservation's ID. Webhooks call it `orderId`.
+                  publicToken:
+                    description: Use it with `GET /orders/{token}` to follow the status.
+                  orderNumber:
+                    description: The number the restaurant sees in its dashboard.
+                  tableId:
+                    description: Always `null` when the request is created. Assigned when the restaurant approves it.
+              example:
+                reservationId: cm2res0001abcdefghijklmn
+                publicToken: cm2tok0002abcdefghijklmn
+                orderNumber: 1043
+                status: PENDING_APPROVAL
+                dineInAt: "2026-10-16T15:00:00.000Z"
+                partySize: 4
+                tableId: null
+        "400":
+          description: "`MISSING_SLUG`, `INVALID_JSON`, or `BAD_REQUEST` for an invalid `Idempotency-Key`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >-
+            Either `IDEMPOTENCY_CONFLICT` in the standard error envelope (the key
+            was already used with a different body), or `ONLINE_BOOKING_CLOSED`
+            in an older, flat error shape (`{ "error": "…", "code":
+            "ONLINE_BOOKING_CLOSED" }`) when the restaurant has closed online
+            booking for that date or time.
+        "422":
+          description: >-
+            `VALIDATION_FAILED`; `DINE_IN_DISABLED` (the restaurant does not take
+            reservations, or has no tables that can be booked online);
+            `PARTY_TOO_LARGE`; `TOO_EARLY` (inside the restaurant's minimum
+            notice); or `BAD_REQUEST` for an invalid `dineInAt`.
+        "429":
+          description: "`RATE_LIMITED`: more than 20 requests in 60 seconds for this slug and IP."
+
+  # ---------------------------------------------------------------------------
+  # Coupons and newsletter
+  # ---------------------------------------------------------------------------
+  /api/v1/coupons/validate:
+    post:
+      operationId: validateCoupon
+      tags: [Coupons and newsletter]
+      summary: Validate a coupon code
+      description: |-
+        Checks a code the customer typed against the cart, so you can show the discount before checkout. A well-formed request always gets `200`: read `valid`, and `reason` when it is `false`.
+
+        The discount is calculated again when the order is created; send the code as `couponCode` to `POST /orders`. A code replaces automatic promotions: an order gets either a code or the best automatic promotion, never both.
+
+        For this endpoint, `slug` goes in the **body**. Rate limit: 30 requests per 60 seconds per slug and IP. Guide: [Coupons and promotions](/coupons).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                slug:
+                  description: The restaurant's slug. Sent in the body for this endpoint.
+                code:
+                  description: The code the customer typed. Not case-sensitive.
+                subtotal:
+                  description: The cart subtotal in øre, including add-ons.
+                cart:
+                  items:
+                    x-fern-type-name: CouponCartLine
+                    properties:
+                      quantity:
+                        description: Number of units on the line. Counts units for `BUNDLE` offers ("X for Y kr").
+                      variantName:
+                        description: >-
+                          Required for `FIXED_PRICE` promotions with prices per
+                          variant (for example `Medium` or `Stor`). Also used for
+                          `BUNDLE` offers limited to one size.
+                email:
+                  description: >-
+                    Optional. Required when the coupon is only for newsletter
+                    subscribers; without it the response is `reason:
+                    SUBSCRIBER_ONLY`. It also lets the server check
+                    once-per-customer codes early.
+            example:
+              slug: pizzaroma
+              code: VELKOMMEN
+              subtotal: 33800
+              fulfillment: PICKUP
+              cart:
+                - productId: cm1pza0001margherita
+                  categoryId: cm1cat0001pizza
+                  quantity: 2
+                  variantName: Medium
+                  lineTotal: 33800
+              email: kari@example.com
+      responses:
+        "200":
+          description: >-
+            The result. Always `200` when the request is valid, also when the
+            code does not apply: then `valid` is `false` and `reason` says why.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - x-fern-type-name: CouponValid
+                    properties:
+                      discount:
+                        description: The discount in øre.
+                      coupon:
+                        x-fern-type-name: ValidatedCoupon
+                        properties:
+                          discountType:
+                            description: Treat unknown values as a general offer.
+                          discountValue:
+                            description: >-
+                              `PERCENT`: percent. `FIXED` and `FIXED_PRICE`: øre.
+                              `BUNDLE`: the price in øre for one bundle of
+                              `bundleQuantity` units, not the discount. Show
+                              `discount`.
+                          minimumOrder:
+                            description: Minimum subtotal in øre.
+                          bundleQuantity:
+                            description: "`BUNDLE` only: units per bundle."
+                          bundleTierKey:
+                            description: "`BUNDLE` only: only variants with this `addonTierKey` count."
+                          maxBundlesPerOrder:
+                            description: "`BUNDLE` only: the maximum number of bundles per order."
+                  - x-fern-type-name: CouponNotValid
+                    properties:
+                      reason:
+                        description: >-
+                          Why the code does not apply. `NOT_APPLICABLE_TO_CART`
+                          is also returned when an "X for Y kr" (`BUNDLE`) offer
+                          has too few qualifying items in the cart.
+                      message:
+                        description: >-
+                          A ready-made Norwegian explanation you can show the
+                          customer as it is (added October 2026). For `BUNDLE`
+                          it tells "requires at least N items" apart from "does
+                          not give a lower price", which both have `reason:
+                          NOT_APPLICABLE_TO_CART`.
+              example:
+                valid: true
+                discount: 5000
+                coupon:
+                  code: VELKOMMEN
+                  description: 50 kr off your first order
+                  displayName: Velkomstrabatt
+                  discountType: FIXED
+                  discountValue: 5000
+                  minimumOrder: 20000
+                  appliesTo: ORDER
+                  bundleQuantity: null
+                  bundleTierKey: null
+                  maxBundlesPerOrder: null
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: "`VALIDATION_FAILED`: the body failed validation. `error.details.issues` lists the fields."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: "`RATE_LIMITED`: more than 30 requests in 60 seconds for this slug and IP."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/coupons/preview-auto:
+    post:
+      operationId: previewAutomaticPromotion
+      tags: [Coupons and newsletter]
+      summary: Preview the automatic promotion
+      description: |-
+        Returns the discount the server would apply when the order is created, if the customer uses no coupon code. Use it to show a line such as "Offer: −50 kr" in the cart. The server evaluates promotions again in `POST /orders`, so this is for display only.
+
+        If no automatic promotion matches, the response is `{ "applies": false, "discount": 0 }`.
+
+        For this endpoint, `slug` goes in the **body**. Rate limit: 30 requests per 60 seconds per slug and IP. Guide: [Coupons and promotions](/coupons).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                slug:
+                  description: The restaurant's slug. Sent in the body for this endpoint.
+                fulfillment:
+                  description: "`PICKUP` or `DELIVERY`. Send it so promotions limited to one of them are evaluated correctly."
+                deliveryFee:
+                  description: The delivery fee in øre. Needed for free-delivery promotions.
+                cart:
+                  items:
+                    x-fern-type-name: PromotionCartLine
+                    properties:
+                      quantity:
+                        description: Number of units on the line. Counts units for `BUNDLE` offers ("X for Y kr").
+                      variantName:
+                        description: >-
+                          Required for `FIXED_PRICE` promotions with prices per
+                          variant (for example `Medium` or `Stor`). Also used for
+                          `BUNDLE` offers limited to one size.
+            example:
+              slug: pizzaroma
+              subtotal: 36800
+              fulfillment: PICKUP
+              deliveryFee: 0
+              cart:
+                - productId: cm1pza0001margherita
+                  quantity: 2
+                  variantName: Stor
+                  lineTotal: 36800
+      responses:
+        "200":
+          description: >-
+            The best matching automatic promotion, or `applies: false` and
+            `discount: 0` when none matches.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - x-fern-type-name: PromotionApplies
+                    properties:
+                      coupon:
+                        x-fern-type-name: PreviewedPromotion
+                        properties:
+                          discountType:
+                            description: Treat unknown values as a general offer.
+                          discountValue:
+                            description: >-
+                              `PERCENT`: percent. `FIXED` and `FIXED_PRICE`: øre.
+                              `BUNDLE`: the price in øre for one bundle of
+                              `bundleQuantity` units, not the discount. Show
+                              `discount`.
+                          bundleQuantity:
+                            description: "`BUNDLE` only: units per bundle."
+                          bundleTierKey:
+                            description: "`BUNDLE` only: only variants with this `addonTierKey` count."
+                          maxBundlesPerOrder:
+                            description: "`BUNDLE` only: the maximum number of bundles per order."
+              example:
+                applies: true
+                discount: 6900
+                coupon:
+                  code: AUTO-2STORE
+                  description: 2 large pizzas for 299 kr
+                  displayName: 2 store for 299
+                  discountType: BUNDLE
+                  discountValue: 29900
+                  appliesTo: CATEGORIES
+                  bundleQuantity: 2
+                  bundleTierKey: stor
+                  maxBundlesPerOrder: null
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
+        "422":
+          description: "`VALIDATION_FAILED`: the body failed validation. `error.details.issues` lists the fields."
+        "429":
+          description: "`RATE_LIMITED`: more than 30 requests in 60 seconds for this slug and IP."
+
+  /api/v1/newsletter/signup:
+    post:
+      operationId: signUpForNewsletter
+      tags: [Coupons and newsletter]
+      summary: Sign up for the newsletter
+      description: |-
+        Adds the customer to the restaurant's newsletter and returns the welcome coupon. Signing up again with the same email is safe: it returns the welcome coupon again and keeps the address subscribed.
+
+        The newsletter popup must be enabled in the restaurant's dashboard and linked to an active coupon. Otherwise the response is `404 POPUP_NOT_AVAILABLE` and nothing is stored. Check `restaurant.newsletterPopup` in `GET /restaurant` before you show a signup form; it also holds the popup's texts.
+
+        Rate limits: 5 requests per 60 seconds per IP, and 200 per hour per restaurant.
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug.
+      requestBody:
+        content:
+          application/json:
+            example:
+              email: kari@example.com
+              name: Kari
+      responses:
+        "200":
+          description: The customer is subscribed. Show the welcome coupon.
+          content:
+            application/json:
+              schema:
+                properties:
+                  couponCode:
+                    description: The welcome code. Show it to the customer.
+                  discountType:
+                    description: The kind of discount the code gives.
+                  discountValue:
+                    description: "`PERCENT`: percent. `FIXED`: øre."
+                  successMessage:
+                    description: >-
+                      The restaurant's thank-you text. Replace `{{code}}` and
+                      `{{discount}}` before you show it.
+              example:
+                couponCode: VELKOMMEN
+                discountType: PERCENT
+                discountValue: 10
+                successMessage: "Takk! Bruk koden {{code}} for {{discount}} rabatt."
+        "400":
+          description: "`MISSING_SLUG` or `INVALID_JSON`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `POPUP_NOT_AVAILABLE` when the popup is turned off or has no active coupon."
+        "422":
+          description: "`VALIDATION_FAILED`: the body failed validation."
+        "429":
+          description: "`RATE_LIMITED`: too many signups from this IP or for this restaurant."
+
+  # ---------------------------------------------------------------------------
+  # Website
+  # ---------------------------------------------------------------------------
+  /api/v1/site-gate:
+    get:
+      operationId: getSiteGate
+      tags: [Website]
+      summary: Get the password gate status
+      description: |-
+        Tells the restaurant's own website whether its preview password gate should be on, and which password applies. Call it from the website's middleware or server. Then the gate can be turned off from LettBestilt at launch, without a redeploy.
+
+        **Requires an API key.** Unlike the rest of the API, browser-origin authentication is not accepted here: the response contains a password and must never be readable from a browser. `password` is only returned when `enabled` is `true`. The response is never cached (`no-store`), so turning the gate off takes effect at once.
+
+        Unlike the other endpoints, this one also answers for restaurants that are not live yet, since they are the ones that need the gate. Rate limit: 600 requests per 60 seconds per slug and IP.
+      parameters:
+        - name: slug
+          in: query
+          description: The restaurant's slug.
+      responses:
+        "200":
+          description: The gate status.
+          content:
+            application/json:
+              schema:
+                properties:
+                  gate:
+                    x-fern-type-name: SiteGate
+                    properties:
+                      enabled:
+                        description: Whether the website should ask for a password.
+                      password:
+                        description: >-
+                          Only present when `enabled` is `true`. `null` means the
+                          gate is on but no password is set. The website should
+                          then fail closed and stay locked.
+              example:
+                gate:
+                  enabled: true
+                  password: forhandsvisning-2026
+        "400":
+          description: "`MISSING_SLUG`: the `slug` query parameter is missing."
+        "401":
+          description: "`UNAUTHORIZED`: missing or invalid API key, or the call came from a browser origin instead of with an API key."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: no restaurant has this slug."
+        "429":
+          description: "`RATE_LIMITED`: more than 600 requests in 60 seconds for this slug and IP."
+
+# -----------------------------------------------------------------------------
+# Webhooks (OpenAPI 3.1). Payloads verified against the platform's
+# dispatchWebhook() call sites.
+# -----------------------------------------------------------------------------
+webhooks:
+  orderCreated:
+    post:
+      operationId: orderCreated
+      tags: [Webhooks]
+      summary: Order created
+      description: |-
+        Sent when a new takeaway order is created. Online orders are sent while they still wait for payment (`status: "AWAITING_PAYMENT"`); `ORDER_PAID` follows when the payment is confirmed. If the customer never pays, no further event is sent. Cash orders arrive as `CONFIRMED`.
+
+        `estimatedReadyAt` is the kitchen's estimate including rush, and `requestedPickupAt` is the agreed time for a pre-order. They are the same times the tracking page shows.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [ORDER_CREATED]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC). Use it to order events.
+                data:
+                  $ref: "#/components/schemas/OrderCreatedData"
+            example:
+              event: ORDER_CREATED
+              createdAt: "2026-10-16T15:02:11.000Z"
+              data:
+                orderId: cm2ord0001abcdefghijklmn
+                orderNumber: 1042
+                publicToken: cm2tok0001abcdefghijklmn
+                status: AWAITING_PAYMENT
+                total: 33800
+                fulfillment: PICKUP
+                paymentMethod: STRIPE
+                estimatedReadyAt: "2026-10-16T15:37:11.000Z"
+                requestedPickupAt: null
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+
+  orderPaid:
+    post:
+      operationId: orderPaid
+      tags: [Webhooks]
+      summary: Order paid
+      description: >-
+        Sent once when the online payment for an order is confirmed. This is
+        when an online order reaches the kitchen.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [ORDER_PAID]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC).
+                data:
+                  $ref: "#/components/schemas/OrderPaidData"
+            example:
+              event: ORDER_PAID
+              createdAt: "2026-10-16T15:03:40.000Z"
+              data:
+                orderId: cm2ord0001abcdefghijklmn
+                orderNumber: 1042
+                publicToken: cm2tok0001abcdefghijklmn
+                status: PAID
+                total: 33800
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+
+  orderStatusChanged:
+    post:
+      operationId: orderStatusChanged
+      tags: [Webhooks]
+      summary: Order status changed
+      description: >-
+        Sent when the restaurant moves an order to a new status, for example to
+        `PREPARING` or `READY_FOR_PICKUP`. Cancellations are sent as
+        `ORDER_CANCELLED` instead, and payment as `ORDER_PAID`.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [ORDER_STATUS_CHANGED]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC).
+                data:
+                  $ref: "#/components/schemas/OrderStatusChangeData"
+            example:
+              event: ORDER_STATUS_CHANGED
+              createdAt: "2026-10-16T15:20:05.000Z"
+              data:
+                orderId: cm2ord0001abcdefghijklmn
+                orderNumber: 1042
+                publicToken: cm2tok0001abcdefghijklmn
+                previousStatus: PREPARING
+                status: READY_FOR_PICKUP
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+
+  orderCancelled:
+    post:
+      operationId: orderCancelled
+      tags: [Webhooks]
+      summary: Order cancelled
+      description: >-
+        Sent when the restaurant cancels an order. `status` is always
+        `CANCELLED`; `previousStatus` is the status before.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [ORDER_CANCELLED]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC).
+                data:
+                  $ref: "#/components/schemas/OrderStatusChangeData"
+            example:
+              event: ORDER_CANCELLED
+              createdAt: "2026-10-16T15:05:00.000Z"
+              data:
+                orderId: cm2ord0001abcdefghijklmn
+                orderNumber: 1042
+                publicToken: cm2tok0001abcdefghijklmn
+                previousStatus: CONFIRMED
+                status: CANCELLED
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+
+  reservationRequested:
+    post:
+      operationId: reservationRequested
+      tags: [Webhooks]
+      summary: Reservation requested
+      description: Sent when a guest requests a table through `POST /reservations`.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [RESERVATION_REQUESTED]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC).
+                data:
+                  $ref: "#/components/schemas/ReservationRequestedData"
+            example:
+              event: RESERVATION_REQUESTED
+              createdAt: "2026-10-14T09:12:00.000Z"
+              data:
+                orderId: cm2res0001abcdefghijklmn
+                orderNumber: 1043
+                publicToken: cm2tok0002abcdefghijklmn
+                dineInAt: "2026-10-16T15:00:00.000Z"
+                partySize: 4
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+
+  reservationApproved:
+    post:
+      operationId: reservationApproved
+      tags: [Webhooks]
+      summary: Reservation approved
+      description: >-
+        Sent when the restaurant approves a reservation request and assigns a
+        table. The reservation's status becomes `CONFIRMED`.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [RESERVATION_APPROVED]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC).
+                data:
+                  $ref: "#/components/schemas/ReservationApprovedData"
+            example:
+              event: RESERVATION_APPROVED
+              createdAt: "2026-10-14T10:30:00.000Z"
+              data:
+                orderId: cm2res0001abcdefghijklmn
+                orderNumber: 1043
+                publicToken: cm2tok0002abcdefghijklmn
+                dineInAt: "2026-10-16T15:00:00.000Z"
+                partySize: 4
+                tableId: cm1tbl0001abcdefghijklmn
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+
+  reservationRejected:
+    post:
+      operationId: reservationRejected
+      tags: [Webhooks]
+      summary: Reservation rejected
+      description: >-
+        Sent when the restaurant rejects a reservation request. The
+        reservation's status becomes `CANCELLED`.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [RESERVATION_REJECTED]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC).
+                data:
+                  $ref: "#/components/schemas/ReservationRejectedData"
+            example:
+              event: RESERVATION_REJECTED
+              createdAt: "2026-10-14T10:31:00.000Z"
+              data:
+                orderId: cm2res0001abcdefghijklmn
+                orderNumber: 1043
+                publicToken: cm2tok0002abcdefghijklmn
+                reason: Fullt den kvelden
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+
+components:
+  securitySchemes:
+    BearerApiKey:
+      description: >-
+        Either this or a trusted browser origin. The restaurant's API key, sent
+        as `Authorization: Bearer lbs_…`. Use it from your server only, never
+        in browser code. Keys are issued per restaurant by LettBestilt.
+    BrowserOrigin:
+      description: >-
+        Either this or an API key. No key is needed when the request's `Origin`
+        header is trusted for this restaurant: `https://{slug}.lettbestilt.no`, a verified domain of
+        the restaurant, or a partner origin LettBestilt has bound to the
+        restaurant. Browsers set `Origin` themselves; it is not something you
+        configure. Not accepted by `GET /site-gate`, which requires an API
+        key.
+
+  parameters:
+    WebhookIdHeader:
+      name: X-LettBestilt-Webhook-Id
+      in: header
+      required: true
+      description: The ID of the webhook subscription this delivery belongs to.
+      schema:
+        type: string
+    WebhookDeliveryIdHeader:
+      name: X-LettBestilt-Delivery-Id
+      in: header
+      required: true
+      description: >-
+        Stable per event and subscription. Retries of the same event carry the
+        same ID, so use it to skip events you have already handled.
+      schema:
+        type: string
+    WebhookTimestampHeader:
+      name: X-LettBestilt-Webhook-Timestamp
+      in: header
+      required: true
+      description: Unix time in seconds when this attempt was signed. Reject old timestamps to stop replays.
+      schema:
+        type: string
+    WebhookSignatureHeader:
+      name: X-LettBestilt-Webhook-Signature
+      in: header
+      required: true
+      description: >-
+        `sha256=` followed by the hex HMAC-SHA256 of `{timestamp}.{raw body}`,
+        keyed with the webhook's signing secret (`whsec_…`).
+      schema:
+        type: string
+
+  schemas:
+    OrderStatus:
+      type: string
+      description: The status of an order or reservation.
+      enum:
+        - PENDING
+        - PENDING_APPROVAL
+        - AWAITING_PAYMENT
+        - PAID
+        - CONFIRMED
+        - PREPARING
+        - READY_FOR_PICKUP
+        - OUT_FOR_DELIVERY
+        - COMPLETED
+        - CANCELLED
+        - FAILED
+      x-fern-enum:
+        PENDING:
+          description: Waiting. Not set on orders created through this API.
+        PENDING_APPROVAL:
+          description: A reservation request waiting for the restaurant.
+        AWAITING_PAYMENT:
+          description: An online order waiting for payment. Not shown to the kitchen yet.
+        PAID:
+          description: Online payment confirmed.
+        CONFIRMED:
+          description: Accepted by the restaurant. Cash orders start here; approved reservations end up here.
+        PREPARING:
+          description: The kitchen is making the order.
+        READY_FOR_PICKUP:
+          description: Ready to be picked up.
+        OUT_FOR_DELIVERY:
+          description: On its way to the customer.
+        COMPLETED:
+          description: Picked up or delivered.
+        CANCELLED:
+          description: Cancelled by the restaurant, or a rejected reservation request.
+        FAILED:
+          description: The online payment failed.
+
+    OrderCreatedData:
+      type: object
+      description: The `data` of an `ORDER_CREATED` event.
+      required: [orderId, orderNumber, publicToken, status, total, fulfillment, paymentMethod, estimatedReadyAt, requestedPickupAt]
+      properties:
+        orderId:
+          type: string
+          description: The order's ID, the same as `orderId` from `POST /orders`.
+        orderNumber:
+          type: integer
+          description: The number the restaurant and the customer see.
+        publicToken:
+          type: string
+          description: Use it with `GET /orders/{token}`.
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        total:
+          type: integer
+          description: The total in øre.
+        fulfillment:
+          type: string
+          enum: [PICKUP, DELIVERY]
+        paymentMethod:
+          type: string
+          enum: [STRIPE, CASH, VIPPS]
+          description: The `paymentMethod` the order was created with. `STRIPE` means online payment through SagaPay.
+        estimatedReadyAt:
+          type: [string, "null"]
+          format: date-time
+          description: The kitchen's estimate including rush (ISO 8601, UTC).
+        requestedPickupAt:
+          type: [string, "null"]
+          format: date-time
+          description: The agreed time for a pre-order, otherwise `null`.
+    OrderPaidData:
+      type: object
+      description: The `data` of an `ORDER_PAID` event.
+      required: [orderId, orderNumber, publicToken, status, total]
+      properties:
+        orderId:
+          type: string
+        orderNumber:
+          type: integer
+        publicToken:
+          type: string
+        status:
+          type: string
+          enum: [PAID]
+        total:
+          type: integer
+          description: The amount paid, in øre.
+    ReservationRequestedData:
+      type: object
+      description: The `data` of a `RESERVATION_REQUESTED` event.
+      required: [orderId, orderNumber, publicToken, dineInAt, partySize]
+      properties:
+        orderId:
+          type: string
+          description: The reservation's ID, the same as `reservationId` from `POST /reservations`.
+        orderNumber:
+          type: integer
+        publicToken:
+          type: string
+        dineInAt:
+          type: string
+          format: date-time
+          description: The requested time (ISO 8601, UTC).
+        partySize:
+          type: integer
+    ReservationApprovedData:
+      type: object
+      description: The `data` of a `RESERVATION_APPROVED` event.
+      required: [orderId, orderNumber, publicToken, dineInAt, partySize, tableId]
+      properties:
+        orderId:
+          type: string
+        orderNumber:
+          type: integer
+        publicToken:
+          type: string
+        dineInAt:
+          type: string
+          format: date-time
+          description: The reserved time (ISO 8601, UTC).
+        partySize:
+          type: integer
+        tableId:
+          type: string
+          description: The assigned table.
+    ReservationRejectedData:
+      type: object
+      description: The `data` of a `RESERVATION_REJECTED` event.
+      required: [orderId, orderNumber, publicToken, reason]
+      properties:
+        orderId:
+          type: string
+        orderNumber:
+          type: integer
+        publicToken:
+          type: string
+        reason:
+          type: [string, "null"]
+          description: The reason the restaurant gave, or `null`.
+    OrderStatusChangeData:
+      type: object
+      description: The `data` of an `ORDER_STATUS_CHANGED` or `ORDER_CANCELLED` event.
+      required: [orderId, orderNumber, publicToken, previousStatus, status]
+      properties:
+        orderId:
+          type: string
+        orderNumber:
+          type: integer
+        publicToken:
+          type: string
+        previousStatus:
+          $ref: "#/components/schemas/OrderStatus"
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+
+    Address:
+      description: >-
+        The restaurant's public visiting address. Safe to publish: on the contact
+        page, as `address` and `geo` in Restaurant JSON-LD, and as the map point
+        for pickup. The field is `null` when the restaurant has no street
+        address. It is never an empty shell, so `address === null` means "no
+        address to show", not "an address with empty fields". `latitude` and
+        `longitude` are both set or both `null`; check one of them before you
+        render a map.
+      properties:
+        line1:
+          description: Street address, for example "Heggeliveien 5". Never empty.
+        postalCode:
+          description: Four digits, for example "9325".
+        city:
+          description: Postal town, for example "Bardufoss".
+        country:
+          description: ISO 3166-1 alpha-2. Always "NO".
+        latitude:
+          description: WGS84. Set when the owner picked the address from the address lookup in the dashboard.
+        longitude:
+          description: WGS84. Always set together with `latitude`.
+
+    AddressHit:
+      description: An address from Kartverket, with WGS84 coordinates for delivery-zone matching.
+      properties:
+        label:
+          description: The full address, for display.
+        street:
+          description: Street name and number.
+        postalCode:
+          description: Four-digit postal code. Send it as `deliveryPostalCode`.
+        city:
+          description: Postal town.
+        lat:
+          description: Latitude. Send it as `deliveryLat`.
+        lng:
+          description: Longitude. Send it as `deliveryLng`.
+
+    DayHours:
+      description: >-
+        One weekday in a set of opening hours. `dayOfWeek` is 0 = Sunday … 6 =
+        Saturday. Times are local wall-clock time in Europe/Oslo, not UTC. When
+        `isClosed` is `true`, ignore `opensAt` and `closesAt`.
+      properties:
+        dayOfWeek:
+          description: 0 = Sunday, 6 = Saturday.
+        opensAt:
+          description: HH:MM, Europe/Oslo.
+        closesAt:
+          description: HH:MM, Europe/Oslo.
+
+    PrepTime:
+      description: >-
+        The current preparation time, already added up: base time plus rush.
+        Show `pickupMinutes` or `deliveryMinutes` as "about X min". They are
+        exactly what `POST /orders` uses to set `estimatedReadyAt` (now plus the
+        minutes) on an as-soon-as-possible order. `rushDelayMinutes` above 0
+        means the kitchen has turned on rush, which turns itself off at the next
+        midnight (Oslo time). Do not calculate anything yourself; show the
+        numbers as they are.
+      properties:
+        pickupMinutes:
+          description: Base pickup time plus rush.
+        deliveryMinutes:
+          description: Base delivery time plus rush.
+        rushDelayMinutes:
+          description: Extra minutes from rush right now (0 = no rush).
+        basePickupMinutes:
+          description: The restaurant's normal pickup time (same as `defaultPrepMinutes`).
+        baseDeliveryMinutes:
+          description: The restaurant's normal delivery time (same as `defaultDeliveryMinutes`).
+
+    Menu:
+      description: >-
+        A menu, such as the main menu or a lunch menu. Only menus that are
+        active right now are returned.
+      properties:
+        isDefault:
+          description: The fallback menu, used when no other menu is active.
+        priority:
+          description: Decides which menu wins when several are active at the same time.
+        schedules:
+          description: When the menu is active. Empty means it is not limited by time of day.
+        startsOn:
+          description: First valid day (Europe/Oslo), inclusive. `null` means no lower limit.
+        endsOn:
+          description: Last valid day (Europe/Oslo), inclusive. `null` means no upper limit.
+
+    MenuSchedule:
+      description: >-
+        A time window that makes a menu active. `startsAt` and `endsAt` are local
+        wall-clock time in Europe/Oslo.
+      properties:
+        startsAt:
+          description: HH:MM, Europe/Oslo. Inclusive.
+        endsAt:
+          description: HH:MM, Europe/Oslo. Exclusive.
+
+    Product:
+      description: A product on the menu. Hidden and unavailable products are not included.
+      properties:
+        nameEn:
+          description: English name, if the restaurant has entered one.
+        descriptionEn:
+          description: English description, if the restaurant has entered one.
+        imageIsStock:
+          description: >-
+            `true` means the image is a generic illustration from LettBestilt's
+            image library, not a photo of the restaurant's own dish. Show
+            "Illustrasjonsfoto" (illustration photo) next to the image when this
+            is `true`.
+        basePrice:
+          description: The price in øre. A chosen variant's `price` replaces it.
+        isPopular:
+          description: Marked as popular by the restaurant.
+        isRecommended:
+          description: Marked as recommended by the restaurant.
+        allowedFulfillment:
+          description: >-
+            `PICKUP` = pickup only, `DELIVERY` = delivery only, `null` = both.
+            The field can be missing in older or cached responses; treat that as
+            `null`. For combo products, the products the customer picks in the
+            slots count too (look them up via `comboSlots`). `POST /orders`
+            rejects violations with `422 FULFILLMENT_NOT_ALLOWED`.
+        allergens:
+          description: Allergen codes. Look them up in the top-level `allergens` list in `GET /menu`.
+
+    AddonGroup:
+      description: >-
+        A group of add-ons, such as extra toppings. The customer picks between
+        `minSelect` and `maxSelect` of `addons`.
+
+    OrderItem:
+      properties:
+        productId:
+          description: A product ID from the menu.
+        variantId:
+          description: The chosen variant, if the product has variants.
+        addonIds:
+          description: The chosen add-ons. At most 50.
+        quantity:
+          description: Number of units, 1–99.
+        notes:
+          description: A note for the kitchen about this line.
+
+    PublicCoupon:
+      description: >-
+        An offer or coupon, as `GET /menu` lists them in `coupons` (code-based)
+        and `promotions` (automatic). The code itself is never included: the
+        customer types it, and `POST /coupons/validate` decides whether it
+        applies.
+      properties:
+        displayName:
+          description: A short name for banners.
+        displayBadge:
+          description: A short badge text, for example "-20%".
+        discountType:
+          description: >-
+            Treat unknown values as a general offer, since more types may be
+            added. `BUNDLE` means "X for Y kr".
+        discountValue:
+          description: >-
+            `PERCENT`: percent. `FIXED` and `FIXED_PRICE`: øre. `BUNDLE`: the
+            price in øre for one bundle of `bundleQuantity` units, not the
+            discount; show `discount` from validate or preview-auto.
+        minimumOrder:
+          description: Minimum subtotal in øre.
+        isAutomatic:
+          description: "`true` for automatic promotions, `false` for code-based coupons."
+        allowedDaysOfWeek:
+          description: 0 = Sunday … 6 = Saturday (Europe/Oslo). An empty list means every day.
+        allowedFulfillment:
+          description: "`PICKUP` or `DELIVERY` if the offer is limited to one of them, otherwise `null`."
+        allowedTimeStart:
+          description: HH:MM, Europe/Oslo.
+        allowedTimeEnd:
+          description: HH:MM, Europe/Oslo.
+        bundleQuantity:
+          description: "`BUNDLE` only: number of units in one bundle. `null` for other types."
+        bundleTierKey:
+          description: >-
+            `BUNDLE` only: only variants with this `addonTierKey` count (for
+            example "stor"). `null` means all sizes.
+        maxBundlesPerOrder:
+          description: "`BUNDLE` only: maximum bundles per order. `null` means no limit."
+        categories:
+          description: The categories the offer applies to when `appliesTo` is `CATEGORIES`.
+        products:
+          description: The products the offer applies to when `appliesTo` is `PRODUCTS`.
+
+    RestaurantCapabilities:
+      description: >-
+        What the restaurant offers right now, controlled from its dashboard.
+        Build your UI from this object instead of keeping your own feature
+        flags. Treat a missing or `false` field as "not offered".
+      properties:
+        pickup:
+          description: Customers can order for pickup.
+        delivery:
+          description: Customers can order delivery.
+        reservations:
+          description: The restaurant takes table reservations.
+        payment:
+          description: >-
+            Checkout options. `online` sends the customer to one hosted SagaPay
+            page, where they choose card, Vipps or another enabled method.
+            `cash` is paid at pickup or delivery.
+
+    CreateOrderRequest:
+      properties:
+        items:
+          description: The cart, 1–100 lines.
+        fulfillment:
+          description: Pickup or delivery. Check `restaurant.capabilities` for what the restaurant offers.
+        orderType:
+          description: >-
+            Always `TAKEAWAY` (15 % VAT on food). For table reservations, use
+            `POST /reservations` instead.
+        customerName:
+          description: The customer's name.
+        customerEmail:
+          description: The order confirmation is sent here.
+        customerPhone:
+          description: The customer's phone number.
+        deliveryAddress:
+          description: The street address for delivery.
+        deliveryCity:
+          description: The postal town for delivery.
+        deliveryPostalCode:
+          description: Four digits. Used to match postal-code delivery zones (`POSTAL_CODES`).
+        deliveryLat:
+          description: >-
+            Latitude of the delivery address. Required to match radius-based
+            delivery zones (`RADIUS`); postal-code zones only need
+            `deliveryPostalCode`. Get it from `GET /address-search`.
+        deliveryLng:
+          description: >-
+            Longitude of the delivery address. Required to match radius-based
+            delivery zones (`RADIUS`); postal-code zones only need
+            `deliveryPostalCode`.
+        deliveryNotes:
+          description: A note for the driver, for example a door code.
+        pickupNotes:
+          description: A note for the restaurant about the pickup.
+        requestedPickupAt:
+          description: >-
+            Optional. The pickup or delivery time for a pre-order (ISO 8601,
+            UTC). Leave it out for as soon as possible. Opening hours, menu
+            schedules and coupon rules are checked against this time.
+        couponCode:
+          description: >-
+            A coupon code the customer typed. When a code is sent, automatic
+            promotions are not applied.
+        expectedTotal:
+          description: >-
+            Optional. The total in øre you showed the customer. If the server's
+            total is higher, the order is rejected with `409 PRICE_CHANGED` and
+            nothing is created. A lower total is accepted (the customer pays less
+            than they saw), so an automatic promotion you could not predict never
+            blocks checkout.
+        paymentMethod:
+          description: >-
+            `STRIPE` for online payment: the response includes `stripeUrl`,
+            SagaPay's hosted page, where the customer chooses card, Vipps or
+            another enabled method. `CASH` is paid at pickup or delivery. `VIPPS`
+            is only accepted for old direct-Vipps integrations.
+        locale:
+          description: The language of emails to the customer. Defaults to `nb`.
+        consentGivenAt:
+          description: Optional. When the customer gave marketing consent (ISO 8601).
+        marketingOptIn:
+          description: The customer's consent to marketing, given at checkout.
+        attributionCampaignId:
+          description: >-
+            Campaign attribution: the value of `?lb_campaign=<id>` from a
+            LettBestilt campaign link. Pass it on unchanged at checkout, and the
+            order counts as a conversion for the campaign. Optional metadata: an
+            invalid or unknown ID is dropped silently and never blocks the order.
+        buyerCompanyName:
+          description: "B2B: the company name on the receipt."
+        buyerOrgNumber:
+          description: "B2B: Norwegian organization number, exactly 9 digits. Spaces are removed."
+
+    CreateOrderResponse:
+      properties:
+        orderId:
+          description: The order's internal ID. Keep it for support requests, but do not put it in URLs.
+        publicToken:
+          description: Safe to put in URLs and share with the customer. Use it with `GET /orders/{token}`.
+        totals:
+          x-fern-type-name: OrderTotals
+          description: >-
+            The authoritative totals, calculated by the server. Your own prices
+            are only for display. Show these to the customer before you redirect
+            to payment.
+          properties:
+            subtotal:
+              description: The sum of all lines including add-ons, in øre.
+            deliveryFee:
+              description: The delivery fee in øre (0 for pickup).
+            discount:
+              description: The applied coupon or automatic promotion, in øre.
+            total:
+              description: "`subtotal + deliveryFee − discount`, in øre."
+            currency:
+              description: The restaurant's currency, for example "NOK".
+        stripeUrl:
+          description: >-
+            SagaPay's hosted payment page, for online orders. Redirect the
+            customer here; they choose card, Vipps or another enabled method on
+            the page. The field name is historical and does not say which
+            provider is used.
+        vippsUrl:
+          description: Only for old direct-Vipps integrations. Use `stripeUrl` for online payment.
+
+    Error:
+      description: >-
+        The error envelope used by every endpoint. Branch on `error.code`, not
+        on `message`.
+      properties:
+        error:
+          x-fern-type-name: ErrorBody
+          properties:
+            code:
+              description: A machine-readable error code.
+              enum:
+                - MISSING_SLUG
+                - MISSING_TOKEN
+                - INVALID_JSON
+                - INVALID_SUCCESS_URL
+                - INVALID_CANCEL_URL
+                - VALIDATION_FAILED
+                - RESTAURANT_NOT_FOUND
+                - ORDER_NOT_FOUND
+                - RATE_LIMITED
+                - BAD_REQUEST
+                - UNAUTHORIZED
+                - FORBIDDEN
+                - POPUP_NOT_AVAILABLE
+                - PRICE_CHANGED
+                - PAYMENT_INCOMPLETE
+                - PAYMENT_PENDING
+                - PAYMENT_PROVIDER_INVALID
+                - FULFILLMENT_NOT_ALLOWED
+                - IDEMPOTENCY_CONFLICT
+                - DINE_IN_DISABLED
+                - PARTY_TOO_LARGE
+                - TOO_EARLY
+                - INTERNAL_ERROR
+            message:
+              description: >-
+                A human-readable explanation. Often in Norwegian, and for
+                business rules usually suitable to show the customer.
+            details:
+              description: >-
+                Extra data for some codes, for example `issues` for
+                `VALIDATION_FAILED` or the totals for `PRICE_CHANGED`.
