@@ -27,7 +27,7 @@ navbar-links:
     url: https://www.lettbestilt.no
   - type: filled
     text: Become a partner
-    url: https://www.lettbestilt.no/kontakt
+    url: https://www.lettbestilt.no/bli-partner
 
 tabs:
   guides:
