@@ -13,9 +13,26 @@ logo:
 favicon: ./assets/favicon.svg
 
 colors:
+  # Sterk blå for lenker, aktiv fane og knapper (AA-kontrast mot hvitt: ~5,2:1).
   accent-primary:
-    light: "#1f3a4a"
-    dark: "#9cc3d5"
+    light: "#1b6ec2"
+    dark: "#6fb1ef"
+  # Hvit flate som SagaPays docs, i stedet for Ferns grå standard.
+  background:
+    light: "#ffffff"
+    dark: "#0d1418"
+  header-background:
+    light: "#ffffff"
+    dark: "#0d1418"
+  sidebar-background:
+    light: "#ffffff"
+    dark: "#0d1418"
+  card-background:
+    light: "#f6f8fa"
+    dark: "#141d22"
+  border:
+    light: "#e5e8ec"
+    dark: "#1f2a30"
 
 layout:
   searchbar-placement: header
