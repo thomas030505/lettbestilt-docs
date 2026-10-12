@@ -243,6 +243,7 @@
                   "PAYMENT_PENDING",
                   "PAYMENT_PROVIDER_INVALID",
                   "FULFILLMENT_NOT_ALLOWED",
+                  "IDEMPOTENCY_CONFLICT",
                   "INTERNAL_ERROR"
                 ]
               },
@@ -1571,7 +1572,7 @@
             }
           },
           "409": {
-            "description": "Konflikt — ingen ny ordre opprettet. `code: \"PRICE_CHANGED\"`: `expectedTotal` ble sendt og serverens autoritative sum er høyere (`error.details: { expectedTotal, actualTotal, currency }`) — hent priser på nytt og prøv igjen. `code: \"PAYMENT_PENDING\"`: replay av en `Idempotency-Key` der ordren nettopp ble opprettet og betalingslenken fortsatt lages — vent et par sekunder og prøv igjen med SAMME nøkkel. `code: \"PAYMENT_INCOMPLETE\"`: samme situasjon, men ordren er for gammel til at kallet kan være underveis — betalingslenken ble aldri opprettet (`error.details: { orderId }`), start bestillingen på nytt. `publicToken` returneres aldri i disse feilene.",
+            "description": "Konflikt — ingen ny ordre opprettet. `code: \"PRICE_CHANGED\"`: `expectedTotal` ble sendt og serverens autoritative sum er høyere (`error.details: { expectedTotal, actualTotal, currency }`) — hent priser på nytt og prøv igjen. `code: \"PAYMENT_PENDING\"`: replay av en `Idempotency-Key` der ordren nettopp ble opprettet og betalingslenken fortsatt lages — vent et par sekunder og prøv igjen med SAMME nøkkel. `code: \"PAYMENT_INCOMPLETE\"`: samme situasjon, men ordren er for gammel til at kallet kan være underveis — betalingslenken ble aldri opprettet (`error.details: { orderId }`), start bestillingen på nytt. `code: \"IDEMPOTENCY_CONFLICT\"`: `Idempotency-Key` er allerede brukt av en bordreservasjon (`POST /reservations`) — nøklene deler navnerom per restaurant; lag en ny nøkkel. `publicToken` returneres aldri i disse feilene.",
             "content": {
               "application/json": {
                 "schema": {

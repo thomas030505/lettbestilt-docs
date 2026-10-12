@@ -105,7 +105,7 @@ The restaurant approves (and assigns a table) or rejects the request. You can fo
 | `422 TOO_EARLY` | The time is inside the restaurant's minimum notice |
 | `422 VALIDATION_FAILED` | The body failed validation; `error.details.issues` lists the fields |
 | `409 ONLINE_BOOKING_CLOSED` | The restaurant has closed online booking for that date or time. This error uses an older, flat shape: `{ "error": "…", "code": "ONLINE_BOOKING_CLOSED" }` |
-| `409 IDEMPOTENCY_CONFLICT` | The `Idempotency-Key` was already used with a different body |
+| `409 IDEMPOTENCY_CONFLICT` | The `Idempotency-Key` was already used with a different body, or by an order |
 | `429 RATE_LIMITED` | More than 20 requests in 60 seconds for this slug and IP |
 
 Retrying with the same `Idempotency-Key` and body returns the existing request with status `200` and `idempotent: true`, so a network error never creates two requests.

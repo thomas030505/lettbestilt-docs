@@ -347,6 +347,9 @@ paths:
             `PAYMENT_INCOMPLETE`: the same, but the order is too old for the
             first call to still be running, so the payment link was never created
             (`error.details` is `{ orderId }`); start again with a new key.
+            `IDEMPOTENCY_CONFLICT`: the `Idempotency-Key` was already used by a
+            table reservation. Orders and reservations share one key space per
+            restaurant; create a new key.
         "422":
           description: >-
             `VALIDATION_FAILED`: the body failed validation
@@ -681,7 +684,7 @@ paths:
         "409":
           description: >-
             Either `IDEMPOTENCY_CONFLICT` in the standard error envelope (the key
-            was already used with a different body), or `ONLINE_BOOKING_CLOSED`
+            was already used with a different body, or by an order), or `ONLINE_BOOKING_CLOSED`
             in an older, flat error shape (`{ "error": "…", "code":
             "ONLINE_BOOKING_CLOSED" }`) when the restaurant has closed online
             booking for that date or time.

@@ -33,7 +33,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has `expectedTotal`, `actualTotal` and `currency` |
 | `PAYMENT_PENDING` | 409 | The order exists but its payment link is still being created. Retry shortly with the same key |
 | `PAYMENT_INCOMPLETE` | 409 | The order exists but never got a payment link. Start a new order |
-| `IDEMPOTENCY_CONFLICT` | 409 | Reservations only: the key was already used with a different body |
+| `IDEMPOTENCY_CONFLICT` | 409 | The `Idempotency-Key` was already used by the other endpoint, or (reservations only) with a different body |
 | `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
 | `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |
 | `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY` | 422 | Reservation rejections. See [Table reservations](/reservations) |
@@ -76,12 +76,13 @@ Read the headers rather than hard-coding the numbers; they may change.
 
 ## Idempotency
 
-`POST /orders` and `POST /reservations` accept an `Idempotency-Key` header: 16 to 128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`). A UUID works well. Keys are scoped per restaurant.
+`POST /orders` and `POST /reservations` accept an `Idempotency-Key` header: 16 to 128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`). A UUID works well. Keys are scoped per restaurant, and orders and reservations share the same key space.
 
 | | `POST /orders` | `POST /reservations` |
 |---|---|---|
 | Same key, same body | Returns the original order and payment link | Returns the original request (`200`, `idempotent: true`) |
 | Same key, different body | Returns the original order. The body is **not** compared | `409 IDEMPOTENCY_CONFLICT` |
+| Key already used by the other endpoint | `409 IDEMPOTENCY_CONFLICT` | `409 IDEMPOTENCY_CONFLICT` |
 
 Create one key per checkout attempt, store it with the attempt, and reuse it only to retry that attempt.
 

@@ -125,6 +125,6 @@ Answering `401` to a bad signature stops retries for that delivery, which is wha
 
 - Respond with any `2xx` within **5 seconds**. Do slow work after you respond.
 - Redirects are not followed. Answer from the URL you registered.
-- `5xx`, `408`, `429`, redirects, timeouts and network errors count as temporary. LettBestilt tries up to **6 times** in total: right away, then about 1 minute, 15 minutes, 1 hour, 4 hours and 12 hours after the previous attempt. After the sixth failure the delivery is given up.
+- `5xx`, `408`, `429`, redirects, timeouts and network errors count as temporary. LettBestilt tries up to **7 times** in total: right away, then 1 minute, 5 minutes, 15 minutes, 1 hour, 4 hours and 12 hours after the previous attempt (about 17 hours in all). After the seventh failure the delivery is given up.
 - Any other `4xx` is treated as permanent, and the delivery is not retried.
 - Deliveries can arrive more than once and out of order. Skip `X-LettBestilt-Delivery-Id` values you have already handled, and use `createdAt` to order events.
