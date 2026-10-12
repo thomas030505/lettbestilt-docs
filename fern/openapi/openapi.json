@@ -1008,7 +1008,7 @@
               "CASH",
               "VIPPS"
             ],
-            "description": "Use STRIPE for the public online choice; SagaPay returns one `stripeUrl` page with Vipps included. CASH is paid at pickup/delivery. VIPPS remains accepted only for legacy direct-Vipps clients."
+            "description": "Use STRIPE for online payment: `stripeUrl` is SagaPay's hosted payment page, which offers card, Vipps and the other methods the restaurant has enabled. CASH is paid at pickup/delivery. VIPPS is still accepted for compatibility and also returns the SagaPay page on `stripeUrl`."
           },
           "locale": {
             "type": "string",
@@ -1096,7 +1096,7 @@
           "vippsUrl": {
             "type": "string",
             "deprecated": true,
-            "description": "Legacy direct-Vipps response. New integrations must use `stripeUrl` for online payment."
+            "description": "No longer returned (direct Vipps was retired). Kept in the schema for compatibility; use `stripeUrl` for online payment."
           }
         }
       }
