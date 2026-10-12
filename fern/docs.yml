@@ -13,10 +13,10 @@ logo:
 favicon: ./assets/favicon.svg
 
 colors:
-  # Sterk blå for lenker, aktiv fane og knapper (AA-kontrast mot hvitt: ~5,2:1).
+  # LettBestilts mørkeblå (DESIGN.md --lb-action) for lenker, aktiv fane og knapper.
   accent-primary:
-    light: "#1b6ec2"
-    dark: "#6fb1ef"
+    light: "#1f3a4a"
+    dark: "#9cc3d5"
   # Hvit flate som SagaPays docs, i stedet for Ferns grå standard.
   background:
     light: "#ffffff"
