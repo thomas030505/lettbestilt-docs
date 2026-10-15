@@ -13,9 +13,10 @@ Send the restaurant's API key as a bearer token:
 Authorization: Bearer lbs_...
 ```
 
-- Keys are issued **per restaurant** by LettBestilt and start with `lbs_`.
+- Keys are created **per restaurant** in the partner portal: **Restaurants → the restaurant → API keys and webhooks**. A key only works for that restaurant.
+- Keys carry their environment: `lbs_test_…` for your sandbox restaurant, `lbs_live_…` for live restaurants. A test key never works against a live restaurant, and the other way round. Older keys that start with just `lbs_` keep working.
 - The full key is shown only once. LettBestilt stores only a hash and cannot show it again.
-- When a key is rotated, the old one stops working immediately. Agree on a time with LettBestilt and deploy the new key right after.
+- A restaurant can have several active keys. To rotate without downtime, choose **Rotate**: you get a new key, and the old one keeps working for up to 24 hours while you deploy it. **Revoke now** stops a key immediately, for example if it has leaked.
 - If a request has an `Authorization` header, the key is always checked. A wrong key fails with `401`, even from a trusted origin.
 
 <Warning>

@@ -3,7 +3,7 @@
   "info": {
     "title": "LettBestilt Public API",
     "version": "1",
-    "description": "Public API for embedding ordering on restaurant websites. All money values are integer øre (1 NOK = 100 øre). Timestamps are ISO-8601 UTC. The tenant key is the `slug` query parameter.",
+    "description": "Public API for embedding ordering on restaurant websites. All money values are integer øre (1 NOK = 100 øre). Timestamps are ISO-8601 UTC. The tenant key is the `slug` query parameter. Every response includes X-Request-Id; error envelopes include error.requestId. New restaurant keys use lbs_live_<id>_<secret> or lbs_test_<id>_<secret>; legacy lbs_<secret> keys remain accepted. Test keys can access sandbox restaurants before go-live. Inactive sandbox restaurants are available, while other inactive restaurants return 404.",
     "contact": {
       "name": "LettBestilt AS",
       "email": "support@lettbestilt.no"
@@ -16,6 +16,14 @@
     }
   ],
   "components": {
+    "headers": {
+      "RequestId": {
+        "description": "Unique identifier for this response. The value is also present as error.requestId on errors.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
     "securitySchemes": {
       "BearerApiKey": {
         "type": "http",
@@ -250,11 +258,16 @@
               "message": {
                 "type": "string"
               },
-              "details": {}
+              "details": {},
+              "requestId": {
+                "type": "string",
+                "description": "Identifier also returned in the X-Request-Id response header."
+              }
             },
             "required": [
               "code",
-              "message"
+              "message",
+              "requestId"
             ]
           }
         },

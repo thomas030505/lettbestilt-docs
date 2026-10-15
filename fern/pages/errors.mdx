@@ -12,10 +12,13 @@ Errors use one envelope:
   "error": {
     "code": "VALIDATION_FAILED",
     "message": "Velg minst 1 fra Saus",
-    "details": {}
+    "details": {},
+    "requestId": "5d1d785c-74a2-4f0e-9c1b-2b8e0f6a1c3d"
   }
 }
 ```
+
+Every response, success or error, has an `X-Request-Id` header, and errors repeat it as `error.requestId`. Log it, and include it when you contact LettBestilt about a failed request: it lets us find the exact call.
 
 Branch on `code`, never on `message`. `message` is written for people and is often in Norwegian; for business rules (sold out, closed, outside the delivery zone) it is usually fine to show the customer as it is. `details` is only present for some codes.
 

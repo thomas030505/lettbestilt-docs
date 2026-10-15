@@ -1351,7 +1351,9 @@ components:
       description: >-
         Either this or a trusted browser origin. The restaurant's API key, sent
         as `Authorization: Bearer lbs_…`. Use it from your server only, never
-        in browser code. Keys are issued per restaurant by LettBestilt.
+        in browser code. Keys are created per restaurant in the LettBestilt
+        partner portal: `lbs_test_…` for sandboxes, `lbs_live_…` for live
+        restaurants.
     BrowserOrigin:
       description: >-
         Either this or an API key. No key is needed when the request's `Origin`
