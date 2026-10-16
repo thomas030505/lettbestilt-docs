@@ -1,0 +1,151 @@
+---
+title: Partner API
+subtitle: Create and manage restaurants from your own systems
+---
+
+The partner API, under `https://www.lettbestilt.no/api/v1/partner`, lets you create sandboxes, read a restaurant's setup, rotate and revoke its keys, and manage its webhooks without opening the partner portal. Everything it does can also be done in the portal.
+
+<Note>
+Partner keys are test keys for now (`lbp_test_…`). They see and create only sandboxes. Live partner keys are not available yet; real restaurants are created in the partner portal.
+</Note>
+
+## Two keys
+
+| | Partner key | Restaurant key |
+|---|---|---|
+| Looks like | `lbp_test_…` | `lbs_test_…` or `lbs_live_…` |
+| Belongs to | Your partner account | One restaurant |
+| Created in | Partner portal → **Settings → Partner key** | Partner portal → the restaurant's API section, or returned when you create a restaurant through the API |
+| Works against | `/api/v1/partner` only | The rest of `/api/v1` (menu, orders, reservations …), and `/api/v1/partner` together with the partner key |
+
+The partner key alone can only see the surface and create new restaurants. Anything that touches an existing restaurant also needs that restaurant's own key. A leaked partner key can therefore not read details about, change or delete a restaurant.
+
+| Call | Partner key alone | Partner key + restaurant key |
+|---|---|---|
+| `GET /partner/restaurants` (list) | ✓ | |
+| `POST /partner/restaurants` (create) | ✓ | |
+| `GET /partner/restaurants/{slug}` (details) | | ✓ |
+| `DELETE /partner/restaurants/{slug}` | | ✓ |
+| `POST …/keys/{keyId}/rotate`, `DELETE …/keys/{keyId}` | | ✓ |
+| `GET`, `POST …/webhooks`, `DELETE …/webhooks/{webhookId}` | | ✓ |
+
+Send them like this:
+
+```http
+Authorization: Bearer lbp_test_...
+X-LettBestilt-Restaurant-Key: lbs_test_...
+```
+
+Rules for the pair:
+
+- Both keys must be in the same environment. A test partner key with a live restaurant key fails with `401 UNAUTHORIZED`.
+- The restaurant key must have full access (scope `*`). A key limited to some scopes gives `403 INSUFFICIENT_SCOPE`. The key you get when you create a restaurant has full access.
+- The `slug` in the path must match the restaurant key. A slug that does not exist, belongs to another partner or does not match the key always gives the same `404 RESTAURANT_NOT_FOUND`, so the API never tells you who owns a slug.
+- Older restaurant keys without an environment in the prefix (`lbs_<random>`) are not accepted. Rotate them in the partner portal first.
+- The partner key is rejected on every other `/api/v1` endpoint with `401`. Use the restaurant key there, as before.
+
+## Server to server only
+
+Call the partner API from your back end. A request with an `Origin` header is rejected with `403 FORBIDDEN`, and preflight requests get no `Access-Control-Allow-*` headers, so a browser can never use it. Never put a partner key in browser code, a mobile app or a repository.
+
+## Create a restaurant
+
+`POST /partner/restaurants` with a test partner key creates a **sandbox**: a restaurant that is never live, has no ordering page on `{slug}.lettbestilt.no`, and accepts test orders through `/api/v1`. A partner can have up to 20 sandboxes.
+
+The `Idempotency-Key` header is **required**. Use a new key, for example a UUID, for every restaurant you want to create, and reuse it only to retry that request.
+
+<CodeBlocks>
+```bash title="cURL"
+curl -X POST "https://www.lettbestilt.no/api/v1/partner/restaurants" \
+  -H "Authorization: Bearer $LETTBESTILT_PARTNER_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Pizza Roma (test)","slug":"pizzaroma-test","email":"dev@byraet.no"}'
+```
+
+```typescript title="TypeScript"
+const API = "https://www.lettbestilt.no/api/v1/partner";
+
+const res = await fetch(`${API}/restaurants`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${process.env.LETTBESTILT_PARTNER_KEY}`,
+    "Idempotency-Key": crypto.randomUUID(),
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "Pizza Roma (test)",
+    slug: "pizzaroma-test",
+    email: "dev@byraet.no",
+  }),
+});
+
+if (res.status === 201) {
+  const { data, restaurantKey } = await res.json();
+  // Shown once. Store it in your secret store right away.
+  await saveSecret(`lettbestilt/${data.slug}`, restaurantKey.key);
+}
+```
+</CodeBlocks>
+
+The `201` response contains the new restaurant key in plain text, **once**, in `restaurantKey.key`. Store it before you do anything else: every call about this restaurant needs it, and LettBestilt cannot show it again.
+
+### Retries and replays
+
+The `Idempotency-Key` is remembered per partner for 30 days.
+
+| You send | You get |
+|---|---|
+| Same key, same body | `200` with the same restaurant, `replayed: true`, `restaurantKey: null`, a `message`, and the header `Idempotent-Replayed: true` |
+| Same key, different body or environment | `409 IDEMPOTENCY_CONFLICT` |
+| Same key, but the restaurant has since been deleted or moved | `409 IDEMPOTENCY_CONFLICT` |
+
+A replay never returns the restaurant key again. If the first response was lost (a timeout, for example) and you never stored the key, create a new key for the restaurant in the partner portal.
+
+A slug that is already in use gives `409 SLUG_TAKEN`. That does not count towards the limit on creations.
+
+## Read, list and delete
+
+- `GET /partner/restaurants` lists your restaurants with slug, name, environment, whether it is live or archived, and when it was created. It is paginated: pass `nextCursor` back as `cursor` until it is `null`. `limit` is 1–100 (default 25).
+- `GET /partner/restaurants/{slug}` returns setup status, SagaPay status (real restaurants only), verified domains, webhooks without secrets, and the restaurant's keys: name, last four characters, environment, scopes and expiry.
+- `DELETE /partner/restaurants/{slug}`:
+  - **A sandbox is deleted for good**, together with its keys. A second `DELETE` with the same key therefore gives `401`. Confirm with the list that the slug is gone. A sandbox with accounting records that must be kept cannot be deleted (`409 RETENTION`).
+  - **A real restaurant is never deleted.** It is archived: turned off and closed in `/api/v1`, while orders and accounting records are kept. Its webhooks are paused. You can still read it, revoke its keys and delete its webhooks, but not rotate keys or add webhooks (`409 RESTAURANT_ARCHIVED`). **Only LettBestilt can restore an archived restaurant.**
+
+```typescript title="TypeScript"
+const res = await fetch(`${API}/restaurants/pizzaroma-test`, {
+  method: "DELETE",
+  headers: {
+    Authorization: `Bearer ${process.env.LETTBESTILT_PARTNER_KEY}`,
+    "X-LettBestilt-Restaurant-Key": restaurantKey,
+  },
+});
+const { data } = await res.json(); // { result: "deleted", slug: "pizzaroma-test" }
+```
+
+## Keys and webhooks
+
+- **Rotate** a restaurant key with `POST …/keys/{keyId}/rotate`. The new key gets the same scopes, and the old one keeps working for `graceHours` (default 24). See [Rotating keys without downtime](/rotating-keys).
+- **Revoke** with `DELETE …/keys/{keyId}`, now (`graceHours: 0`, the default) or after up to 24 hours. You cannot revoke the key you are calling with immediately (`409 KEY_IN_USE`); rotate it instead.
+- **Webhooks**: `GET …/webhooks` lists them, `POST …/webhooks` creates one (the signing secret is in the response, once), `DELETE …/webhooks/{webhookId}` removes one. A restaurant can have up to 10. Pausing, resending and test events are in the partner portal; see [Webhooks](/webhooks).
+
+Key ids are in `apiKeys` in `GET /partner/restaurants/{slug}`.
+
+## Rate limits
+
+| What | Limit |
+|---|---|
+| All partner endpoints | 120 calls per minute per partner key |
+| Create a restaurant | 10 per hour per partner key, and 20 per hour per partner. Replays do not count |
+| Delete or archive a restaurant | 10 per hour per partner key |
+| Rotate or revoke keys, create or delete webhooks | 30 per minute per partner |
+
+Over the limit you get `429 RATE_LIMITED` with `Retry-After`.
+
+## Responses and errors
+
+- Every response with content wraps it in `data`. Responses are never cached (`Cache-Control: no-store`) and always carry `X-Request-Id`.
+- Validation errors are `422 VALIDATION_FAILED` with `error.details.issues`, also for `limit` and `cursor`. Invalid JSON is `400 INVALID_JSON`.
+- Calls with a restaurant key appear in that restaurant's API log in the partner portal. Calls with the partner key alone (list and create) do not, because they are not about one restaurant. See [Debugging with request IDs](/debugging).
+
+All codes are listed in [Errors](/errors), and every endpoint in the [API reference](/api-reference).

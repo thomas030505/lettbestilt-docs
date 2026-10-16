@@ -1,0 +1,110 @@
+---
+title: Debugging with request IDs
+subtitle: Find out why a call failed without waiting for support
+---
+
+Every call to `/api/v1` gets a request ID. With it you can find the exact call in the restaurant's API log in the partner portal, see what LettBestilt answered and why, and check the whole integration in one place.
+
+## Where the request ID is
+
+- In the `X-Request-Id` header of **every** response, success or error. Browsers can read it too; it is exposed through CORS.
+- In `error.requestId` in every error envelope:
+
+```json
+{
+  "error": {
+    "code": "INSUFFICIENT_SCOPE",
+    "message": "API-nøkkelen har ikke tilgangen «Opprette ordre». Lag en nøkkel med denne tilgangen i partnerportalen.",
+    "details": { "requiredScope": "orders.create" },
+    "requestId": "5d1d785c-74a2-4f0e-9c1b-2b8e0f6a1c3d"
+  }
+}
+```
+
+Log the request ID next to your own log line for every call, at least for every error.
+
+### Sending your own ID
+
+You can send your own `X-Request-Id` (1–128 characters: letters, digits, `.`, `_`, `:` and `-`), for example the trace ID from your own logging. LettBestilt echoes it back in the response, so one ID follows the request through both systems.
+
+In the API log, your own ID is used as the request ID when the call had a valid API key. Without a valid key (a wrong key, or a browser call), the log entry gets an ID from LettBestilt and keeps yours alongside it, marked as chosen by the client and not verified. Searching for your ID finds the entry either way.
+
+```typescript title="TypeScript"
+const requestId = crypto.randomUUID();
+const res = await fetch(`${API}/menu?slug=${slug}`, {
+  headers: {
+    Authorization: `Bearer ${process.env.LETTBESTILT_API_KEY}`,
+    "X-Request-Id": requestId,
+  },
+});
+if (!res.ok) {
+  const { error } = await res.json();
+  logger.error("LettBestilt call failed", {
+    status: res.status,
+    code: error.code,
+    requestId: res.headers.get("x-request-id"),
+  });
+}
+```
+
+## The API log
+
+In the partner portal, open the restaurant and its API section (*API for …*). **API log** (*API-logg*) is at the bottom, closed by default. Partner administrators can see it.
+
+Each entry shows the HTTP status, method and route, the time, how long the call took, which key was used (or a browser call without a key) and the request ID. Errors get a plain-language explanation based on the error code. You can:
+
+- show all calls or only errors
+- filter by key, or by browser calls without a key
+- search for a request ID (exact match)
+
+What the log does **not** contain: request or response bodies, headers, query values or IP addresses. Routes are stored as patterns, such as `/api/v1/orders/{param}`, so tokens and customer data never end up in the log.
+
+Entries are kept for **14 days**.
+
+### Calls that are not in the log
+
+The log belongs to one restaurant, so a call only appears when LettBestilt knows which restaurant it was for:
+
+- Calls with a slug that does not exist, or for a real restaurant that is not live yet (they get `404`), are not logged.
+- `GET /orders/{token}`, `GET /openapi.json` and `OPTIONS` preflight requests are not logged.
+- Partner API calls with the partner key alone (list and create restaurants) are not logged. Calls with a restaurant key are logged under that restaurant.
+
+Under very heavy traffic the log keeps a sample: successful calls are all logged up to 60 per minute per key, and errors with a valid key up to 300 per minute per key; above that, one in ten. Errors without a valid key are capped, so anonymous traffic cannot flood the log.
+
+## Check integration
+
+**Check integration** (*Sjekk integrasjonen*) is at the top of the restaurant's API section. It looks at the last 24 hours and shows, for each check, *OK*, *should be checked*, *error* or *not in use*:
+
+| Check | What it looks at |
+|---|---|
+| The restaurant answers in the API | Whether `/api/v1` serves the restaurant (live, or a sandbox) |
+| Key used | Whether an active key has been used in the last 24 hours |
+| Verified domains | Whether the restaurant has verified domains for browser calls and return URLs |
+| Webhooks delivered | Whether events were delivered, failed or are waiting for a retry (test events do not count) |
+| Errors in the API log | `4xx` and `5xx` responses, and whether `401`/`403` errors come from your own integration |
+| Return URLs | Whether the `successUrl` and `cancelUrl` of the latest order were accepted |
+
+Slugs are public, so anyone can produce a `401` for a restaurant. The check therefore only reports authentication errors as an error when they come from a known source (a valid key, or the same IP address as your successful calls with a key), and says when an error seems to have been fixed by later successful calls.
+
+## A typical session
+
+1. Your log shows a failed call with status `403` and request ID `5d1d785c-…`.
+2. In the API log, search for the request ID. The entry shows `403` on `POST /api/v1/orders` and the key that was used, and explains that the key does not have the access this endpoint needs.
+3. The key is limited to reading the menu. Create a key with **Create orders** access, or full access, and rotate it in (see [Rotating keys without downtime](/rotating-keys)).
+
+## Common errors
+
+| You see | Likely cause |
+|---|---|
+| `401 UNAUTHORIZED` | Missing, wrong or revoked key, a key for another restaurant, a partner key (`lbp_…`) on a restaurant endpoint, or a browser call from a domain that is not verified |
+| `401 KEY_EXPIRED` | The key passed its expiry date. Create or rotate to a new key |
+| `403 INSUFFICIENT_SCOPE` | The key does not have the scope in `error.details.requiredScope` |
+| `403 FORBIDDEN` on `/api/v1/partner` | The call came from a browser (`Origin` header). Call the partner API from your server |
+| `404 RESTAURANT_NOT_FOUND` | The slug is wrong, or the real restaurant is not live yet. For the partner API: the slug does not match the restaurant key |
+| `400 INVALID_SUCCESS_URL` | The return URL is not on a verified domain. Ask LettBestilt to verify the host |
+
+All codes are in [Errors](/errors).
+
+## Contacting LettBestilt
+
+If you still need help, send the request ID, the time of the call and the restaurant's slug. Never send API keys.

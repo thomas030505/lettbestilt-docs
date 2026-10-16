@@ -1,0 +1,92 @@
+---
+title: Rotating keys without downtime
+subtitle: Create the new key, deploy it, then retire the old one
+---
+
+Rotate a restaurant key when someone who knew it leaves, when it is about to expire, or as routine. A rotation creates the new key first and keeps the old one working for a grace period, so the site never stops while you deploy.
+
+<Warning>
+If a key has **leaked**, do not rotate with a grace period. Revoke it immediately (**Revoke now** / *Trekk tilbake nå* in the portal, or `graceHours: 0`), then create a new one. A leaked key should not keep working for 24 hours.
+</Warning>
+
+## How a rotation works
+
+| | Old key | New key |
+|---|---|---|
+| Right after the rotation | Still works | Works |
+| After the grace period (default 24 hours, at most 24) | Stops working | Works |
+
+- The new key gets the **same scopes** as the old one. It does **not** inherit the expiry date. Through the API you can set one with `expiresOn`; a key rotated in the portal has none.
+- The old key never works longer than it would have without the rotation: if it was already set to expire or be revoked sooner, that time still applies.
+- The new key is shown in plain text once. Store it right away.
+
+## Step by step
+
+<Steps>
+
+### Create the new key
+
+In the partner portal, open the restaurant's API section and choose **Rotate** (*Roter*) on the key. The old key keeps working for 24 hours.
+
+Or with the [partner API](/partner-api), which lets you choose the grace period (0–24 hours) and an expiry date:
+
+<CodeBlocks>
+```bash title="cURL"
+curl -X POST "https://www.lettbestilt.no/api/v1/partner/restaurants/pizzaroma/keys/$KEY_ID/rotate" \
+  -H "Authorization: Bearer $LETTBESTILT_PARTNER_KEY" \
+  -H "X-LettBestilt-Restaurant-Key: $LETTBESTILT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Website (November 2026)","graceHours":24}'
+```
+
+```typescript title="TypeScript"
+const res = await fetch(
+  `https://www.lettbestilt.no/api/v1/partner/restaurants/pizzaroma/keys/${keyId}/rotate`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.LETTBESTILT_PARTNER_KEY}`,
+      "X-LettBestilt-Restaurant-Key": process.env.LETTBESTILT_API_KEY!,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name: "Website (November 2026)", graceHours: 24 }),
+  },
+);
+const { restaurantKey, effectiveAt } = await res.json();
+// restaurantKey.key is the new key, shown once.
+// effectiveAt is when the old key stops working.
+```
+</CodeBlocks>
+
+You can rotate the key you are calling with. The key id is in `apiKeys` from `GET /partner/restaurants/{slug}`. The restaurant key you send must have full access to use the partner API.
+
+### Deploy the new key
+
+Put the new key in your secret store and environment variables, and deploy every server, function and job that calls LettBestilt for this restaurant. Do it well within the grace period.
+
+### Check that the new key is in use
+
+- `GET /partner/restaurants/{slug}` (or the key list in the portal) shows `lastUsedAt` for each key. It is updated at most every 5 minutes. When the new key has a recent `lastUsedAt` and the old one has stopped changing, everything has switched.
+- The restaurant's API log in the portal can be filtered by key. See [Debugging with request IDs](/debugging).
+
+### Retire the old key
+
+Let the grace period run out, or revoke the old key as soon as you have confirmed the switch:
+
+```bash
+curl -X DELETE "https://www.lettbestilt.no/api/v1/partner/restaurants/pizzaroma/keys/$OLD_KEY_ID" \
+  -H "Authorization: Bearer $LETTBESTILT_PARTNER_KEY" \
+  -H "X-LettBestilt-Restaurant-Key: $NEW_LETTBESTILT_API_KEY"
+```
+
+Use the **new** key in `X-LettBestilt-Restaurant-Key`: the key you are calling with cannot be revoked immediately (`409 KEY_IN_USE`).
+
+</Steps>
+
+## Expiry dates
+
+A key can have an expiry date, from tomorrow up to two years ahead. It works through the chosen day (Norwegian time) and then fails with `401 KEY_EXPIRED`. The partner portal warns 14 days before. Rotate before the date using the steps above. To give the new key an expiry date as well, rotate through the API with `expiresOn` (`YYYY-MM-DD`).
+
+## The partner key
+
+Your partner key (`lbp_…`) is rotated the same way, on the **Partner key** page in the partner portal: the new key is created first, and the old one keeps working for 24 hours while you deploy.

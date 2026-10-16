@@ -92,6 +92,21 @@ navigation:
           - page: Webhooks
             slug: webhooks
             path: ./pages/webhooks.mdx
+      - section: Partners
+        skip-slug: true
+        contents:
+          - page: Partner API
+            slug: partner-api
+            path: ./pages/partner-api.mdx
+          - page: From sandbox to live
+            slug: sandbox-to-live
+            path: ./pages/sandbox-to-live.mdx
+          - page: Rotating keys without downtime
+            slug: rotating-keys
+            path: ./pages/rotating-keys.mdx
+          - page: Debugging with request IDs
+            slug: debugging
+            path: ./pages/debugging.mdx
       - section: Go live
         skip-slug: true
         contents:
@@ -101,6 +116,9 @@ navigation:
           - page: Go-live checklist
             slug: go-live
             path: ./pages/go-live.mdx
+          - page: Changelog
+            slug: changelog
+            path: ./pages/changelog.mdx
   - tab: api
     layout:
       - api: API reference
@@ -137,6 +155,19 @@ navigation:
               - website
             contents:
               - GET /api/v1/site-gate
+          - section: Partner
+            referenced-packages:
+              - partner
+            contents:
+              - GET /api/v1/partner/restaurants
+              - POST /api/v1/partner/restaurants
+              - GET /api/v1/partner/restaurants/{slug}
+              - DELETE /api/v1/partner/restaurants/{slug}
+              - POST /api/v1/partner/restaurants/{slug}/keys/{keyId}/rotate
+              - DELETE /api/v1/partner/restaurants/{slug}/keys/{keyId}
+              - GET /api/v1/partner/restaurants/{slug}/webhooks
+              - POST /api/v1/partner/restaurants/{slug}/webhooks
+              - DELETE /api/v1/partner/restaurants/{slug}/webhooks/{webhookId}
           - section: Webhooks
             referenced-packages:
               - webhooks

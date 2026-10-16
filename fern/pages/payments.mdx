@@ -35,11 +35,32 @@ With `paymentMethod: "CASH"` there is no payment link. The order is `CONFIRMED` 
 
 `successUrl` and `cancelUrl` are query parameters on `POST /orders`.
 
-- They must be `https` on a verified domain or on lettbestilt.no. Other URLs are rejected with `400 INVALID_SUCCESS_URL` or `400 INVALID_CANCEL_URL`.
+- They must be `https` on lettbestilt.no, on a verified domain of the restaurant or its partner, or on a domain LettBestilt has approved. Other URLs are rejected with `400 INVALID_SUCCESS_URL` or `400 INVALID_CANCEL_URL`. Domains cannot be registered through the API; ask LettBestilt to verify a new host.
 - If you leave out `successUrl`, the customer returns to `/order/{TOKEN}?payment=success` on the restaurant's website domain (or on `{slug}.lettbestilt.no`).
 - If you leave out `cancelUrl`, the customer returns to the front page of the restaurant's website domain, or to checkout on `{slug}.lettbestilt.no`.
 
 Pass your own URLs so you control where the customer lands.
+
+## Testing payments in a sandbox
+
+A sandbox restaurant cannot be connected to SagaPay, so online payment is simulated. Create the order with a test key and `paymentMethod: "STRIPE"` exactly as in production. The difference is where `stripeUrl` points:
+
+| | Real restaurant | Sandbox |
+|---|---|---|
+| `stripeUrl` | SagaPay's hosted payment page | LettBestilt's test payment page, `https://www.lettbestilt.no/sandkasse/betaling/{token}`, clearly marked TEST |
+| Paying | The customer pays with card, Vipps or another method | **Betal (test)** marks the order `PAID` |
+| After paying | `successUrl` | `successUrl` |
+| Cancelling | `cancelUrl`; the order becomes `FAILED` | **Avbryt** sends the customer to `cancelUrl`; the order becomes `FAILED` |
+| Webhooks | `ORDER_PAID` when the payment is confirmed | `ORDER_PAID`, the same way |
+| Money | Real | None. Nothing is charged, and nothing reaches accounting or invoicing |
+
+So you can test the whole checkout: redirect, return to `successUrl` with `{TOKEN}`, polling `GET /orders/{token}` until `PAID`, and the `ORDER_PAID` webhook.
+
+- In a sandbox you can leave out `successUrl` and `cancelUrl`. The customer then returns to the test page, which shows that the order is paid or that the payment was cancelled.
+- `restaurant.capabilities.payment.online` is `true` in a sandbox when online payment is turned on for it, so your checkout shows online payment as it will for the real restaurant.
+- Cancelling a paid sandbox order only marks the payment as refunded. No provider is called.
+
+The test page only works for sandbox orders. A real order's `stripeUrl` always goes to SagaPay.
 
 ## When the payment provider is down
 

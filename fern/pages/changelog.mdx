@@ -1,0 +1,27 @@
+---
+title: Changelog
+subtitle: Changes to the LettBestilt API and the partner tools
+---
+
+Newest first. New fields, endpoints, error codes and events can appear in `/api/v1` at any time, so ignore what you do not recognise.
+
+## 2026-10-16: Partner API, scopes and sandbox payments
+
+**Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed. Existing keys keep full access, so integrations that work today keep working without changes.
+
+### New
+
+- **[Partner API](/partner-api)** under `/api/v1/partner`: list and create restaurants, read a restaurant's setup, delete a sandbox or archive a real restaurant, rotate and revoke restaurant keys, and create, list and delete webhooks. Server to server only.
+- **Partner key** (`lbp_test_…`), created in the partner portal under **Settings → Partner key**. It only works against `/api/v1/partner`, together with the restaurant's own key in `X-LettBestilt-Restaurant-Key` for calls about one restaurant. Only test partner keys are available for now; they see and create sandboxes.
+- **[Scopes](/authentication#scopes)** on restaurant keys. A key can be limited to some endpoints; a call outside them returns `403 INSUFFICIENT_SCOPE` with `error.details.requiredScope`. Existing keys keep full access.
+- **[Expiry dates](/authentication#expiry-dates)** on keys, from tomorrow up to two years ahead. An expired key returns `401 KEY_EXPIRED`. The partner portal warns 14 days before.
+- **[Sandbox payments](/payments#testing-payments-in-a-sandbox).** In a sandbox, `stripeUrl` points to a LettBestilt test page where the payment is approved or cancelled. `ORDER_PAID` is sent as usual, and no money moves.
+- **[Webhook delivery log](/webhooks#delivery-log)** in the partner portal, with **Resend** (same `X-LettBestilt-Delivery-Id`, so receivers deduplicate), pause and resume, and changing events. Deliveries are kept for 30 days.
+- **[`PING` test event](/webhooks#test-event)**, sent from the partner portal and signed like every other event. You cannot subscribe to it, and it is only sent when you ask for it.
+- **[API log](/debugging#the-api-log)** per restaurant in the partner portal: status, route, key and request ID of each call, kept for 14 days, searchable by request ID, including an `X-Request-Id` you send yourself. **Check integration** sums up keys, domains, webhooks, errors and return URLs for the last 24 hours.
+
+### Changed
+
+- Restaurant endpoints in `/api/v1` accept only restaurant keys. A partner key there is rejected with `401 UNAUTHORIZED`.
+- New error codes: `KEY_EXPIRED`, `INSUFFICIENT_SCOPE`, and the partner API's `IDEMPOTENCY_KEY_REQUIRED`, `PARTNER_AGREEMENT_REQUIRED`, `SLUG_TAKEN`, `SANDBOX_LIMIT`, `RETENTION`, `RESTAURANT_ARCHIVED`, `KEY_NOT_FOUND`, `KEY_IN_USE`, `WEBHOOK_NOT_FOUND`, `WEBHOOK_LIMIT` and `CHANGED`. See [Errors](/errors).
+- In a sandbox, `successUrl` and `cancelUrl` on `POST /orders` can be left out; the customer then returns to the test page.

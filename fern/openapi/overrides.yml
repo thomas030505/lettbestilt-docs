@@ -47,6 +47,14 @@ tags:
     description: >-
       Events LettBestilt sends to your endpoint. Every delivery is signed; see
       the [webhooks guide](/webhooks) for how to verify it.
+  # The platform spec has only the Partner tag, at index 0. Tags are merged by
+  # index, so every tag above overwrites it and Partner must be listed here.
+  - name: Partner
+    description: >-
+      The partner API, `/api/v1/partner`. The partner key (`lbp_…`) alone lists
+      and creates restaurants. Everything about one existing restaurant also
+      needs that restaurant's own key in `X-LettBestilt-Restaurant-Key`. Server
+      to server only. See the [Partner API guide](/partner-api).
 
 paths:
   # ---------------------------------------------------------------------------
@@ -87,7 +95,7 @@ paths:
         "400":
           description: "`MISSING_SLUG`: the `slug` query parameter is missing."
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
           content:
             application/json:
               schema:
@@ -192,7 +200,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
           content:
             application/json:
               schema:
@@ -230,7 +238,7 @@ paths:
         "400":
           description: "`MISSING_SLUG`: the `slug` query parameter is missing."
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
         "429":
@@ -249,6 +257,7 @@ paths:
 
         - **Online payment** (`paymentMethod: "STRIPE"`): the response includes `stripeUrl`, SagaPay's hosted payment page. Redirect the customer there. The field name is historical and does not mean Stripe.
         - **Cash** (`paymentMethod: "CASH"`): there is no payment link, and the order goes straight to the kitchen.
+        - **Sandbox** (test key on a sandbox restaurant): `stripeUrl` points to LettBestilt's test payment page instead of SagaPay. **Betal (test)** marks the order paid and sends `ORDER_PAID`; **Avbryt** (cancel) sends the customer to `cancelUrl`. No money moves. See [Payments](/payments#testing-payments-in-a-sandbox).
         - **Retries**: send an `Idempotency-Key` header and retry with the same key after a network error. A replay returns the original order instead of creating a new one.
         - **Price check**: send `expectedTotal`, the total you showed the customer, to get `409 PRICE_CHANGED` instead of an order at a higher price.
 
@@ -266,17 +275,24 @@ paths:
           description: >-
             Where the customer returns after paying. Put `{TOKEN}` in the URL to
             get the order's `publicToken` back, for example
-            `https://www.pizzaroma.no/order/{TOKEN}`. Must be `https` on a
-            verified domain or on lettbestilt.no; anything else fails with
-            `400 INVALID_SUCCESS_URL`. If you leave it out, the customer returns
-            to `/order/{TOKEN}?payment=success` on the restaurant's domain.
+            `https://www.pizzaroma.no/order/{TOKEN}`. Must be `https` on
+            lettbestilt.no, on a verified domain of the restaurant or its
+            partner, or on a domain LettBestilt has approved; anything else fails
+            with `400 INVALID_SUCCESS_URL`. Domains cannot be registered through
+            the API: ask LettBestilt to verify a new host. If you leave it out,
+            the customer returns to `/order/{TOKEN}?payment=success` on the
+            restaurant's domain. In a sandbox you can leave it out: the customer
+            then returns to the test payment page, which shows that the order is
+            paid.
         - name: cancelUrl
           in: query
           description: >-
             Where the customer returns if they cancel or the payment fails. Same
             rules as `successUrl` (`400 INVALID_CANCEL_URL`). If you leave it
             out, the customer returns to the front page of the restaurant's own
-            domain, or to checkout on `{slug}.lettbestilt.no`.
+            domain, or to checkout on `{slug}.lettbestilt.no`. In a sandbox the
+            customer returns to the test payment page, which shows that the
+            payment was cancelled.
         - name: Idempotency-Key
           in: header
           description: >-
@@ -328,7 +344,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
           content:
@@ -490,7 +506,7 @@ paths:
         "400":
           description: "`MISSING_SLUG`, or `BAD_REQUEST` when `q` is shorter than 3 or longer than 100 characters."
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
           content:
             application/json:
               schema:
@@ -570,7 +586,7 @@ paths:
         "400":
           description: "`MISSING_SLUG`, or `BAD_REQUEST` for an invalid `date` or `partySize`."
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
         "429":
@@ -674,7 +690,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
           content:
@@ -812,7 +828,7 @@ paths:
                   bundleTierKey: null
                   maxBundlesPerOrder: null
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
           content:
             application/json:
               schema:
@@ -921,7 +937,7 @@ paths:
                   bundleTierKey: stor
                   maxBundlesPerOrder: null
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
         "422":
@@ -979,7 +995,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, and the request does not come from a trusted browser origin."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`, or `POPUP_NOT_AVAILABLE` when the popup is turned off or has no active coupon."
         "422":
@@ -1029,11 +1045,362 @@ paths:
         "400":
           description: "`MISSING_SLUG`: the `slug` query parameter is missing."
         "401":
-          description: "`UNAUTHORIZED`: missing or invalid API key, or the call came from a browser origin instead of with an API key."
+          description: "`UNAUTHORIZED`: missing, invalid or revoked API key, or the call came from a browser origin instead of with an API key. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no restaurant has this slug."
         "429":
           description: "`RATE_LIMITED`: more than 600 requests in 60 seconds for this slug and IP."
+
+  # ---------------------------------------------------------------------------
+  # Partner API. Responses shared by every partner endpoint use the same text,
+  # so a change here means a change in all of them.
+  # ---------------------------------------------------------------------------
+  /api/v1/partner/restaurants:
+    get:
+      operationId: listPartnerRestaurants
+      tags: [Partner]
+      summary: List your restaurants
+      description: |-
+        **Partner key alone.** Lists the partner's restaurants, sorted by slug and paginated with a cursor. A test key sees only sandboxes; a live key would see only real restaurants. Archived restaurants are included (`archived: true`).
+
+        No contact details, payment status or customer data. Use `GET /partner/restaurants/{slug}` with the restaurant key for details.
+
+        This call is not written to the API log in the partner portal, because it is not about one restaurant.
+      parameters:
+        - name: cursor
+          in: query
+          description: "`nextCursor` from the previous page. Leave it out for the first page."
+        - name: limit
+          in: query
+          description: Restaurants per page, 1–100. Defaults to 25.
+      responses:
+        "200":
+          description: One page of restaurants. `nextCursor` is `null` on the last page.
+          content:
+            application/json:
+              example:
+                data:
+                  - slug: pizzaroma-test
+                    name: Pizza Roma (test)
+                    environment: TEST
+                    sandbox: true
+                    live: false
+                    archived: false
+                    createdAt: "2026-10-16T08:12:00.000Z"
+                nextCursor: null
+        "401":
+          description: "`UNAUTHORIZED`: missing, invalid or revoked partner key, a restaurant key in `Authorization`, or a suspended or archived partner. `KEY_EXPIRED`: the partner key is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header; the partner API is server to server only."
+        "422":
+          description: "`VALIDATION_FAILED`: invalid `limit` or `cursor` (`error.details.issues`)."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key. See `Retry-After`."
+    post:
+      operationId: createPartnerRestaurant
+      tags: [Partner]
+      summary: Create a restaurant
+      description: |-
+        **Partner key alone.** With a test key, creates a sandbox: it is never live, has no ordering page on `{slug}.lettbestilt.no`, and a partner can have up to 20. Live partner keys are not available yet.
+
+        The response contains a new restaurant key with full access, in plain text **once**, in `restaurantKey.key`. Store it right away: every call about this restaurant needs it, and it is never shown again.
+
+        **`Idempotency-Key` is required** and is scoped per partner for 30 days:
+
+        - Same key, same body: `200` with the same restaurant, `restaurantKey: null`, `replayed: true`, a `message`, and the header `Idempotent-Replayed: true`. The restaurant key is not shown again. If you lost it (for example because the first response never arrived), create a new key for the restaurant in the partner portal.
+        - Same key, different body or environment, or a restaurant that has since been deleted or moved: `409 IDEMPOTENCY_CONFLICT`.
+
+        A slug that is already taken gives `409 SLUG_TAKEN` and does not count towards the limit. At most 10 creations per hour per partner key, and 20 per partner. Replays do not count.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          description: "Required. 16–128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`). Use one new key, for example a UUID, per restaurant you want to create."
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Pizza Roma (test)
+              slug: pizzaroma-test
+              email: dev@byraet.no
+              pickupEnabled: true
+              deliveryEnabled: false
+      responses:
+        "200":
+          description: "Replay of the same `Idempotency-Key`: the same restaurant, `restaurantKey: null`, `replayed: true` and a `message`."
+        "201":
+          description: Created. Store `restaurantKey.key` now; it is not shown again.
+          content:
+            application/json:
+              example:
+                data:
+                  slug: pizzaroma-test
+                  name: Pizza Roma (test)
+                  environment: TEST
+                  sandbox: true
+                  live: false
+                  archived: false
+                  createdAt: "2026-10-16T08:12:00.000Z"
+                restaurantKey:
+                  id: cm2key0001abcdefghijklmn
+                  name: Opprettet via partner-API
+                  last4: x9Qa
+                  environment: TEST
+                  scopes: ["*"]
+                  key: lbs_test_cm2key0001abcdefghijklmn_q8Vt2mWkRb7LpZ3nDc5HsYf1JuE9aT0oGi4Nw6Kx9Qa
+                message: Lagre restaurantnøkkelen nå. Den vises ikke igjen.
+        "400":
+          description: "`IDEMPOTENCY_KEY_REQUIRED`: the `Idempotency-Key` header is missing or invalid. `INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: missing, invalid or revoked partner key, a restaurant key in `Authorization`, or a suspended or archived partner. `KEY_EXPIRED`: the partner key is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header; the partner API is server to server only."
+        "409":
+          description: "`SLUG_TAKEN`: the slug is in use. `SANDBOX_LIMIT`: the partner already has 20 sandboxes; delete one first. `IDEMPOTENCY_CONFLICT`: see above."
+        "422":
+          description: "`VALIDATION_FAILED`: `error.details.issues` lists the fields."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 10 creations per hour per key (20 per partner). See `Retry-After`."
+
+  /api/v1/partner/restaurants/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug. Must match the restaurant key in `X-LettBestilt-Restaurant-Key`.
+    get:
+      operationId: getPartnerRestaurant
+      tags: [Partner]
+      summary: Get one restaurant
+      description: |-
+        **Partner key + restaurant key.** Setup status, SagaPay status (real restaurants only; `null` for sandboxes), verified domains, webhooks (never the secret) and the restaurant's API keys (name, last four characters, environment, scopes, expiry). Also works for an archived restaurant.
+
+        No contact details or customer data.
+      responses:
+        "200":
+          description: The restaurant.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access (`error.details.requiredScope` is `*`)."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+    delete:
+      operationId: deletePartnerRestaurant
+      tags: [Partner]
+      summary: Delete a sandbox, or archive a real restaurant
+      description: |-
+        **Partner key + restaurant key.**
+
+        - **A sandbox is deleted for good** (`result: "deleted"`), together with its keys. A second `DELETE` with the same restaurant key therefore gives `401`. Confirm with `GET /partner/restaurants` that the slug is gone.
+        - **A real restaurant is never deleted.** It is archived (`result: "archived"`): turned off and closed in `/api/v1`, while orders and accounting records are kept. Its webhooks are paused. The restaurant keys keep working against the partner API, so you can still read the restaurant, revoke keys and delete webhooks. Only LettBestilt can restore it. Archiving is idempotent: an archived restaurant gives `200` again.
+
+        At most 10 per hour per partner key.
+      responses:
+        "200":
+          description: Deleted or archived.
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      archivedAt:
+                        description: Only when `result` is `archived`.
+                      wasLive:
+                        description: Whether the restaurant was live when it was archived (only the first time).
+              example:
+                data:
+                  result: deleted
+                  slug: pizzaroma-test
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked (also the key of a sandbox you just deleted), the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "409":
+          description: "`RETENTION`: the sandbox has accounting records that must be kept (`error.details.blockers`). `CHANGED`: the restaurant changed during the call; nothing was deleted, try again."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute, or more than 10 deletions per hour, for this partner key."
+
+  /api/v1/partner/restaurants/{slug}/keys/{keyId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: keyId
+        in: path
+        description: The key's `id`, from `apiKeys` in `GET /partner/restaurants/{slug}`.
+    delete:
+      operationId: revokeRestaurantKey
+      tags: [Partner]
+      summary: Revoke a restaurant key
+      description: |-
+        **Partner key + restaurant key.** Revokes a restaurant key now (`graceHours: 0`, the default) or after up to 24 hours. The body is optional.
+
+        The key you are calling with (in `X-LettBestilt-Restaurant-Key`) cannot be revoked immediately (`409 KEY_IN_USE`); rotate it instead, or pass `graceHours`. Allowed for an archived restaurant too: access can always be removed.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                graceHours:
+                  description: Hours until the key stops working, 0–24. Defaults to 0 (now).
+      responses:
+        "200":
+          description: Revoked, or scheduled. `revokedAt` is when the key stops working.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `KEY_NOT_FOUND` when the key does not belong to the restaurant."
+        "409":
+          description: "`KEY_IN_USE`: you tried to revoke the calling key immediately. `CHANGED`: the key changed at the same time; try again."
+        "422":
+          description: "`VALIDATION_FAILED`: `graceHours` is not an integer from 0 to 24."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
+
+  /api/v1/partner/restaurants/{slug}/keys/{keyId}/rotate:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: keyId
+        in: path
+        description: The `id` of the key to replace.
+    post:
+      operationId: rotateRestaurantKey
+      tags: [Partner]
+      summary: Rotate a restaurant key
+      description: |-
+        **Partner key + restaurant key.** Creates a new key first. It gets the same scopes as the old one (not its expiry date) and is shown in plain text **once**, in `restaurantKey.key`, in the same shape as when a restaurant is created. The old key keeps working for `graceHours` (default 24), so you can deploy the new key without downtime. `effectiveAt` is when the old key stops working.
+
+        Not allowed for an archived restaurant (`409 RESTAURANT_ARCHIVED`). See [Rotating keys without downtime](/rotating-keys).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                name:
+                  description: A name for the new key, 1–80 characters.
+                graceHours:
+                  description: How long the old key keeps working, 0–24 hours. Defaults to 24.
+                expiresOn:
+                  description: >-
+                    Optional expiry date for the new key (`YYYY-MM-DD`), from
+                    tomorrow up to two years ahead. The key works through that
+                    day, Norwegian time.
+            example:
+              name: Website (October 2026)
+              graceHours: 24
+      responses:
+        "201":
+          description: The new key. Store `restaurantKey.key` now; it is not shown again.
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    description: The new key's metadata.
+                  effectiveAt:
+                    description: When the old key stops working.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `KEY_NOT_FOUND` when the key does not exist or is already revoked."
+        "409":
+          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: the key changed at the same time; try again."
+        "422":
+          description: "`VALIDATION_FAILED`: `name` is missing, or `graceHours` or `expiresOn` is invalid (`error.details.issues`)."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
+
+  /api/v1/partner/restaurants/{slug}/webhooks:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    get:
+      operationId: listRestaurantWebhooks
+      tags: [Partner]
+      summary: List the restaurant's webhooks
+      description: "**Partner key + restaurant key.** Never includes the signing secret. A restaurant has at most 10 webhooks, so `nextCursor` is always `null`."
+      responses:
+        "200":
+          description: The webhooks.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+    post:
+      operationId: createRestaurantWebhook
+      tags: [Partner]
+      summary: Create a webhook
+      description: |-
+        **Partner key + restaurant key.** The URL must be a public `https://` address. The signing secret (`whsec_…`) is shown **once**, in `secret`. See [Webhooks](/webhooks) for how to verify deliveries.
+
+        Not allowed for an archived restaurant (`409 RESTAURANT_ARCHIVED`).
+      requestBody:
+        content:
+          application/json:
+            example:
+              url: https://hooks.byraet.no/lettbestilt
+              events: [ORDER_PAID, ORDER_STATUS_CHANGED]
+      responses:
+        "201":
+          description: Created. Store `secret` now; it is not shown again.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "409":
+          description: "`WEBHOOK_LIMIT`: the restaurant already has 10 webhooks. `RESTAURANT_ARCHIVED`: the restaurant is archived."
+        "422":
+          description: "`VALIDATION_FAILED`: `url` or `events` is missing, or the URL is not a public `https://` address (`error.details.issues`, with `path: \"url\"`)."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
+
+  /api/v1/partner/restaurants/{slug}/webhooks/{webhookId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: webhookId
+        in: path
+        description: The webhook's `id`.
+    delete:
+      operationId: deleteRestaurantWebhook
+      tags: [Partner]
+      summary: Delete a webhook
+      description: "**Partner key + restaurant key.** Allowed for an archived restaurant too: a receiver can always be removed."
+      responses:
+        "200":
+          description: Deleted.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `WEBHOOK_NOT_FOUND` when the webhook does not belong to the restaurant."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
 
 # -----------------------------------------------------------------------------
 # Webhooks (OpenAPI 3.1). Payloads verified against the platform's
@@ -1345,6 +1712,64 @@ webhooks:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
 
+  ping:
+    post:
+      operationId: ping
+      tags: [Webhooks]
+      summary: Test event (PING)
+      description: >-
+        Sent only when someone chooses **Send test event** for the webhook in
+        the partner portal, to check that your endpoint receives and verifies
+        deliveries. It is signed like every other event, is sent even when the
+        webhook is paused, and is never retried. You cannot subscribe to it.
+        Answer `2xx` and ignore it, or log it.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, createdAt, data]
+              properties:
+                event:
+                  type: string
+                  enum: [PING]
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the test event was sent (ISO 8601, UTC).
+                data:
+                  type: object
+                  required: [webhookId, restaurantSlug, test, message]
+                  properties:
+                    webhookId:
+                      type: string
+                      description: The webhook subscription the test was sent to.
+                    restaurantSlug:
+                      type: string
+                    test:
+                      type: boolean
+                      enum: [true]
+                    message:
+                      type: string
+                      description: A fixed Norwegian text.
+            example:
+              event: PING
+              createdAt: "2026-10-16T09:00:00.000Z"
+              data:
+                webhookId: cm2whk0001abcdefghijklmn
+                restaurantSlug: pizzaroma-test
+                test: true
+                message: Testhendelse fra LettBestilt
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds.
+
 components:
   securitySchemes:
     BearerApiKey:
@@ -1353,7 +1778,33 @@ components:
         as `Authorization: Bearer lbs_…`. Use it from your server only, never
         in browser code. Keys are created per restaurant in the LettBestilt
         partner portal: `lbs_test_…` for sandboxes, `lbs_live_…` for live
-        restaurants.
+        restaurants. A key can be limited to some scopes; an endpoint outside
+        them returns `403 INSUFFICIENT_SCOPE` with the required scope in
+        `error.details.requiredScope`. A key can have an expiry date; an expired
+        key returns `401 KEY_EXPIRED`. A partner key (`lbp_…`) only works
+        against `/api/v1/partner` and is rejected here with `401 UNAUTHORIZED`.
+    PartnerApiKey:
+      description: >-
+        The partner key, sent as `Authorization: Bearer lbp_test_…`. Created in
+        the partner portal under **Partner key**. It belongs to the partner, not
+        to a restaurant, and only works against `/api/v1/partner`. Server to
+        server only: a request with an `Origin` header is rejected with `403
+        FORBIDDEN`. A test key sees and creates only sandboxes; live partner
+        keys are not available yet. A revoked key, a restaurant key (`lbs_…`)
+        here, or a suspended or archived partner returns `401 UNAUTHORIZED`;
+        an expired key returns `401 KEY_EXPIRED`.
+    RestaurantKeyHeader:
+      description: >-
+        The restaurant's own key (`lbs_test_…` or `lbs_live_…`), sent in
+        `X-LettBestilt-Restaurant-Key` together with the partner key for calls
+        about one restaurant. The key must have full access (scope `*`,
+        otherwise `403 INSUFFICIENT_SCOPE`), belong to a restaurant the partner
+        owns, and be in the same environment as the partner key (otherwise `401
+        UNAUTHORIZED`). A slug that does not exist, belongs to another partner
+        or does not match the key always gives the same `404
+        RESTAURANT_NOT_FOUND`. Older keys without an environment in the prefix
+        (`lbs_<random>`) are not accepted here; rotate them in the partner
+        portal.
     BrowserOrigin:
       description: >-
         Either this or an API key. No key is needed when the request's `Origin`
@@ -1362,6 +1813,20 @@ components:
         restaurant. Browsers set `Origin` themselves; it is not something you
         configure. Not accepted by `GET /site-gate`, which requires an API
         key.
+
+  responses:
+    Unauthorized:
+      description: >-
+        Missing, invalid, revoked or expired API key, and the request does not
+        come from a trusted browser origin. `error.code` is `UNAUTHORIZED`, or
+        `KEY_EXPIRED` when the key is valid but past its expiry date. A partner
+        key (`lbp_…`) always gives `UNAUTHORIZED` here.
+    InsufficientScope:
+      description: >-
+        `INSUFFICIENT_SCOPE`: the API key does not have the scope this endpoint
+        needs. `error.details.requiredScope` names it, for example
+        `orders.create`. Create a key with that access in the partner portal,
+        or use a key with full access.
 
   parameters:
     WebhookIdHeader:
@@ -1376,7 +1841,8 @@ components:
       in: header
       required: true
       description: >-
-        Stable per event and subscription. Retries of the same event carry the
+        Stable per event and subscription. Retries of the same event, and
+        deliveries sent again with **Resend** in the partner portal, carry the
         same ID, so use it to skip events you have already handled.
       schema:
         type: string
@@ -1763,7 +2229,9 @@ components:
           description: >-
             Checkout options. `online` sends the customer to one hosted SagaPay
             page, where they choose card, Vipps or another enabled method.
-            `cash` is paid at pickup or delivery.
+            `cash` is paid at pickup or delivery. In a sandbox, `online` is
+            simulated: the payment page is LettBestilt's test page, and no money
+            moves.
 
     CreateOrderRequest:
       properties:
@@ -1868,9 +2336,120 @@ components:
             SagaPay's hosted payment page, for online orders. Redirect the
             customer here; they choose card, Vipps or another enabled method on
             the page. The field name is historical and does not say which
-            provider is used.
+            provider is used. In a sandbox the link points to LettBestilt's test
+            payment page (`/sandkasse/betaling/{token}`) instead of SagaPay; no
+            money moves.
         vippsUrl:
           description: Only for old direct-Vipps integrations. Use `stripeUrl` for online payment.
+
+    PartnerRestaurant:
+      description: A restaurant as the partner key alone sees it. No contact details, payment status or customer data.
+      properties:
+        slug:
+          description: The restaurant's identifier everywhere in `/api/v1`.
+        environment:
+          description: "`TEST` for a sandbox, `LIVE` for a real restaurant."
+        sandbox:
+          description: "`true` for a sandbox."
+        live:
+          description: >-
+            A real restaurant that has gone live and takes orders. A new real
+            restaurant is not live until its owner has signed and set it live.
+            Always `false` for sandboxes; they accept test orders in `/api/v1`
+            anyway.
+        archived:
+          description: Archived with `DELETE` (real restaurants only). Only LettBestilt can restore it.
+    PartnerRestaurantList:
+      properties:
+        nextCursor:
+          description: Send as `cursor` to get the next page. `null` on the last page.
+    PartnerRestaurantCreate:
+      properties:
+        name:
+          description: The restaurant's name, 2–80 characters.
+        slug:
+          description: >-
+            Lowercase letters, digits and hyphens, 2–32 characters. Becomes
+            `{slug}.lettbestilt.no` and the restaurant's key in `/api/v1`.
+            Stored in lowercase.
+        email:
+          description: The restaurant's contact email. For a sandbox, use your own address.
+        phone:
+          description: Optional phone number.
+        orgNumber:
+          description: Optional organization number.
+        pickupEnabled:
+          description: Offer pickup. Defaults to `true`.
+        deliveryEnabled:
+          description: Offer delivery. Defaults to `false`.
+    PartnerRestaurantApiKey:
+      description: A restaurant key (`lbs_…`) as the partner sees it. Never the key itself or its hash.
+      properties:
+        id:
+          description: Used to rotate and revoke the key.
+        name:
+          description: The name you gave the key.
+        last4:
+          description: The last four characters of the key.
+        scopes:
+          description: '`["*"]` is full access. Otherwise the scopes the key is limited to.'
+        status:
+          description: "`expiring`: the key expires within 14 days and has not been rotated out. `expired` and `revoked` keys no longer work. A key scheduled for revocation by a rotation stays `active` until then; see `revokedAt`."
+        expiresAt:
+          description: The expiry date, or `null` for no expiry.
+        revokedAt:
+          description: When the key was revoked. A time in the future means it still works until then (rotation with a grace period).
+        lastUsedAt:
+          description: Last use, with a resolution of about 5 minutes.
+    PartnerNewRestaurantKey:
+      description: A new restaurant key with the plain-text key in `key`, shown once. The same shape on creation and rotation.
+      properties:
+        key:
+          description: "`lbs_test_…` or `lbs_live_…`. Store it now; it is never shown again."
+    PartnerRestaurantCreated:
+      properties:
+        restaurantKey:
+          description: >-
+            The new restaurant key with full access, in plain text once (`201`).
+            `null` on a replay (`200`): the key is never shown again. If you
+            lost it, create a new key for the restaurant in the partner portal.
+        replayed:
+          description: "`true` when the response is a replay of the same `Idempotency-Key`."
+        message:
+          description: On a replay, why the key is missing and where to create a new one.
+    PartnerWebhook:
+      description: A webhook subscription. The signing secret is only shown when it is created.
+      properties:
+        active:
+          description: "`false` when the webhook is paused. Events that happen while it is paused are not stored or sent."
+        lastDeliveryStatus:
+          description: The HTTP status your endpoint returned on the last delivery.
+        lastFailureReason:
+          description: A fixed category, for example `HTTP 500` or `request timeout`.
+    PartnerWebhookCreated:
+      properties:
+        secret:
+          description: The signing secret (`whsec_…`) for the HMAC-SHA256 signature, shown once.
+    PartnerRestaurantDetails:
+      description: Details, available with both keys. No contact details or customer data.
+      # allOf is merged by index: index 0 is the PartnerRestaurant $ref, left as it is.
+      allOf:
+        - {}
+        - properties:
+            archivedAt:
+              description: When the restaurant was archived, or `null`.
+            setup:
+              properties:
+                confirmedSteps:
+                  description: Setup steps the restaurant has confirmed in its getting-started flow.
+                totalSteps:
+                  description: The number of setup steps.
+                launched:
+                  description: The owner has set the restaurant live at least once.
+            payment:
+              description: Online payment with SagaPay. `null` for sandboxes, where payment is simulated.
+            domains:
+              description: The restaurant's verified domains.
 
     Error:
       description: >-
@@ -1895,6 +2474,8 @@ components:
                 - BAD_REQUEST
                 - UNAUTHORIZED
                 - FORBIDDEN
+                - INSUFFICIENT_SCOPE
+                - KEY_EXPIRED
                 - POPUP_NOT_AVAILABLE
                 - PRICE_CHANGED
                 - PAYMENT_INCOMPLETE
@@ -1906,6 +2487,17 @@ components:
                 - PARTY_TOO_LARGE
                 - TOO_EARLY
                 - INTERNAL_ERROR
+                - PARTNER_AGREEMENT_REQUIRED
+                - IDEMPOTENCY_KEY_REQUIRED
+                - SLUG_TAKEN
+                - SANDBOX_LIMIT
+                - RETENTION
+                - RESTAURANT_ARCHIVED
+                - KEY_NOT_FOUND
+                - KEY_IN_USE
+                - WEBHOOK_NOT_FOUND
+                - WEBHOOK_LIMIT
+                - CHANGED
             message:
               description: >-
                 A human-readable explanation. Often in Norwegian, and for
@@ -1913,4 +2505,10 @@ components:
             details:
               description: >-
                 Extra data for some codes, for example `issues` for
-                `VALIDATION_FAILED` or the totals for `PRICE_CHANGED`.
+                `VALIDATION_FAILED`, the totals for `PRICE_CHANGED` or
+                `requiredScope` for `INSUFFICIENT_SCOPE`.
+            requestId:
+              description: >-
+                The same value as the `X-Request-Id` response header. Search for
+                it in the API log in the partner portal, and include it when you
+                contact LettBestilt.

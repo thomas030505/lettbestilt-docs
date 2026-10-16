@@ -18,7 +18,7 @@ Errors use one envelope:
 }
 ```
 
-Every response, success or error, has an `X-Request-Id` header, and errors repeat it as `error.requestId`. Log it, and include it when you contact LettBestilt about a failed request: it lets us find the exact call.
+Every response, success or error, has an `X-Request-Id` header, and errors repeat it as `error.requestId`. Log it. You can search for it in the restaurant's API log in the partner portal to see what happened, and include it when you contact LettBestilt. See [Debugging with request IDs](/debugging).
 
 Branch on `code`, never on `message`. `message` is written for people and is often in Norwegian; for business rules (sold out, closed, outside the delivery zone) it is usually fine to show the customer as it is. `details` is only present for some codes.
 
@@ -29,14 +29,28 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `INVALID_JSON` | 400 | The body is not valid JSON |
 | `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | 400 | A return URL is not `https` on a verified domain or lettbestilt.no |
 | `BAD_REQUEST` | 400 | Malformed input, such as an invalid `Idempotency-Key`, or the restaurant is closed or does not offer the chosen fulfillment or payment method |
-| `UNAUTHORIZED` | 401 | Missing or wrong API key, and the origin is not trusted |
-| `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug |
+| `IDEMPOTENCY_KEY_REQUIRED` | 400 | Partner API: `POST /partner/restaurants` without a valid `Idempotency-Key` |
+| `UNAUTHORIZED` | 401 | Missing, wrong or revoked API key, and the origin is not trusted. Also a partner key (`lbp_…`) on a restaurant endpoint, or keys from different environments in the partner API |
+| `KEY_EXPIRED` | 401 | The key is valid but past its expiry date. Rotate to a new key |
+| `FORBIDDEN` | 403 | Partner API: the request has an `Origin` header. Call it from your server |
+| `INSUFFICIENT_SCOPE` | 403 | The key does not have the scope this endpoint needs. `details.requiredScope` names it (`*` in the partner API, which needs a restaurant key with full access) |
+| `PARTNER_AGREEMENT_REQUIRED` | 403 | Partner API with a live partner key: the partner agreements are not signed. Live partner keys are not available yet |
+| `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug. In the partner API also when the slug belongs to another partner or does not match the restaurant key |
+| `KEY_NOT_FOUND` | 404 | Partner API: the key does not belong to the restaurant, or is already revoked |
+| `WEBHOOK_NOT_FOUND` | 404 | Partner API: the webhook does not belong to the restaurant |
 | `ORDER_NOT_FOUND` | 404 | No order has this token |
 | `POPUP_NOT_AVAILABLE` | 404 | Newsletter signup is turned off for the restaurant |
 | `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has `expectedTotal`, `actualTotal` and `currency` |
 | `PAYMENT_PENDING` | 409 | The order exists but its payment link is still being created. Retry shortly with the same key |
 | `PAYMENT_INCOMPLETE` | 409 | The order exists but never got a payment link. Start a new order |
-| `IDEMPOTENCY_CONFLICT` | 409 | The `Idempotency-Key` was already used by the other endpoint, or (reservations only) with a different body |
+| `IDEMPOTENCY_CONFLICT` | 409 | The `Idempotency-Key` was already used by the other endpoint, or (reservations and partner restaurant creation) with a different body |
+| `SLUG_TAKEN` | 409 | Partner API: the slug is already in use |
+| `SANDBOX_LIMIT` | 409 | Partner API: you already have 20 sandboxes. Delete one first |
+| `RETENTION` | 409 | Partner API: the sandbox has accounting records that must be kept and cannot be deleted. `details.blockers` says why |
+| `RESTAURANT_ARCHIVED` | 409 | Partner API: the restaurant is archived, so keys cannot be rotated and webhooks cannot be added |
+| `KEY_IN_USE` | 409 | Partner API: you tried to revoke the key you are calling with immediately. Rotate it instead |
+| `WEBHOOK_LIMIT` | 409 | Partner API: the restaurant already has 10 webhooks |
+| `CHANGED` | 409 | Partner API: the same thing was changed at the same time. Nothing was changed by your call; try again |
 | `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
 | `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |
 | `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY` | 422 | Reservation rejections. See [Table reservations](/reservations) |
@@ -61,6 +75,10 @@ Limits are counted per client IP, and for most endpoints per restaurant as well:
 | `GET /orders/{token}` | 60 per minute per IP, and 30 per minute per token |
 | `GET /prep-time`, `GET /site-gate` | 600 per minute per slug and IP |
 | `GET /menu`, `GET /restaurant` | No limit; responses are cached at the edge |
+| `/partner/…` (all endpoints) | 120 per minute per partner key |
+| `POST /partner/restaurants` | 10 per hour per partner key, and 20 per hour per partner |
+| `DELETE /partner/restaurants/{slug}` | 10 per hour per partner key |
+| Rotating and revoking keys, creating and deleting webhooks in the partner API | 30 per minute per partner |
 
 Rate-limited responses include these headers:
 
@@ -89,6 +107,8 @@ Read the headers rather than hard-coding the numbers; they may change.
 
 Create one key per checkout attempt, store it with the attempt, and reuse it only to retry that attempt.
 
+The partner API's `POST /partner/restaurants` **requires** an `Idempotency-Key`. It is scoped per partner and kept for 30 days, and a replay never returns the restaurant key again. See [Partner API](/partner-api#retries-and-replays).
+
 ## When to retry
 
 | Situation | Retry? |
@@ -98,4 +118,5 @@ Create one key per checkout attempt, store it with the attempt, and reuse it onl
 | `429 RATE_LIMITED` | Yes, after `Retry-After` seconds |
 | `503` on `POST /orders` | Only as a new attempt with a new key; the first order has no payment link |
 | `500` | Yes, with backoff. On `POST /orders` and `POST /reservations`, reuse the same key. Contact LettBestilt if it persists |
-| `400`, `401`, `404`, `422`, other `409` | No. Change the request first |
+| `409 CHANGED` (partner API) | Yes, once the conflicting change is done |
+| `400`, `401`, `403`, `404`, `422`, other `409` | No. Change the request first. Look up the request ID in the API log if the cause is unclear |

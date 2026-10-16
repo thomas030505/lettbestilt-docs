@@ -3,25 +3,81 @@ title: Authentication
 subtitle: API keys for servers, verified domains for browsers
 ---
 
-Every endpoint except order tracking needs one of two kinds of authentication: an API key, or a request from a trusted browser origin.
+Every endpoint except order tracking needs one of two kinds of authentication: an API key, or a request from a trusted browser origin. The [partner API](/partner-api) under `/api/v1/partner` has its own keys, described at the end of this page.
+
+## Key types
+
+| Key | Prefix | Belongs to | Works against |
+|---|---|---|---|
+| Restaurant key, test | `lbs_test_…` | One sandbox restaurant | `/api/v1` for that sandbox |
+| Restaurant key, live | `lbs_live_…` | One real restaurant | `/api/v1` for that restaurant |
+| Partner key, test | `lbp_test_…` | Your partner account | `/api/v1/partner` only |
+
+Live partner keys (`lbp_live_…`) are not available yet. Older restaurant keys that start with just `lbs_` keep working against the restaurant endpoints.
 
 ## API key (server to server)
 
 Send the restaurant's API key as a bearer token:
 
 ```http
-Authorization: Bearer lbs_...
+Authorization: Bearer lbs_live_...
 ```
 
-- Keys are created **per restaurant** in the partner portal: **Restaurants → the restaurant → API keys and webhooks**. A key only works for that restaurant.
-- Keys carry their environment: `lbs_test_…` for your sandbox restaurant, `lbs_live_…` for live restaurants. A test key never works against a live restaurant, and the other way round. Older keys that start with just `lbs_` keep working.
+- Keys are created **per restaurant** in the partner portal, in the restaurant's API section (*API for …*). A key only works for that restaurant. When you create a sandbox with the partner API, the response includes its first key.
+- A test key never works against a live restaurant, and the other way round.
 - The full key is shown only once. LettBestilt stores only a hash and cannot show it again.
-- A restaurant can have several active keys. To rotate without downtime, choose **Rotate**: you get a new key, and the old one keeps working for up to 24 hours while you deploy it. **Revoke now** stops a key immediately, for example if it has leaked.
+- A restaurant can have several active keys. To rotate without downtime, choose **Rotate**: you get a new key, and the old one keeps working for up to 24 hours while you deploy it. **Revoke now** stops a key immediately, for example if it has leaked. See [Rotating keys without downtime](/rotating-keys).
 - If a request has an `Authorization` header, the key is always checked. A wrong key fails with `401`, even from a trusted origin.
+- A partner key (`lbp_…`) is rejected on these endpoints with `401 UNAUTHORIZED`. Use the restaurant's own key.
 
 <Warning>
 Use the key only from your server. Never put it in browser code, a mobile app or a public repository.
 </Warning>
+
+### Scopes
+
+A key has full access by default. When you create a key in the partner portal, you can instead limit it to what the site needs, under **Access and expiry date** (*Tilganger og utløpsdato*). The access groups (in Norwegian in the portal) map to these scopes:
+
+| Access in the portal | Scopes | Endpoints |
+|---|---|---|
+| Read menu and restaurant | `restaurant.read`, `menu.read`, `prep-time.read` | `GET /restaurant`, `GET /menu`, `GET /prep-time` |
+| Create orders | `orders.create` | `POST /orders` |
+| Reservations | `dine-in.availability`, `reservations.create` | `GET /dine-in/availability`, `POST /reservations` |
+| Coupons | `coupons.validate`, `coupons.preview` | `POST /coupons/validate`, `POST /coupons/preview-auto` |
+| Newsletter | `newsletter.signup` | `POST /newsletter/signup` |
+| Address search | `address-search.read` | `GET /address-search` |
+| Password gate | `site-gate.read` | `GET /site-gate` |
+
+A call outside the key's scopes fails with `403 INSUFFICIENT_SCOPE`, and `error.details.requiredScope` names the scope it needed:
+
+```json
+{
+  "error": {
+    "code": "INSUFFICIENT_SCOPE",
+    "message": "API-nøkkelen har ikke tilgangen «Opprette ordre». Lag en nøkkel med denne tilgangen i partnerportalen.",
+    "details": { "requiredScope": "orders.create" },
+    "requestId": "5d1d785c-74a2-4f0e-9c1b-2b8e0f6a1c3d"
+  }
+}
+```
+
+A limited key never gets new scopes automatically: if LettBestilt adds an endpoint later, only keys with full access can call it. A rotated key keeps the scopes of the key it replaces. To use a restaurant key with the partner API, it must have full access.
+
+### Expiry dates
+
+A key can have an expiry date, from tomorrow up to two years ahead. It works through the chosen day (Norwegian time). After that, calls fail with `401 KEY_EXPIRED`:
+
+```json
+{
+  "error": {
+    "code": "KEY_EXPIRED",
+    "message": "…",
+    "requestId": "…"
+  }
+}
+```
+
+The partner portal warns 14 days before a key expires. Rotate it before then. LettBestilt only says `KEY_EXPIRED` for a key that is otherwise valid; a wrong or revoked key always gives `401 UNAUTHORIZED`.
 
 ## Trusted browser origin
 
@@ -32,7 +88,7 @@ An origin is trusted for a restaurant when it is:
 - the restaurant's LettBestilt subdomain, `https://{slug}.lettbestilt.no`
 - one of the restaurant's **verified domains**, for example `https://www.pizzaroma.no`
 
-Ask LettBestilt to verify every hostname your site runs on. `pizzaroma.no` and `www.pizzaroma.no` are two different origins, so verify both if you use both. Only `https` origins are accepted.
+Ask LettBestilt to verify every hostname your site runs on. `pizzaroma.no` and `www.pizzaroma.no` are two different origins, so verify both if you use both. Only `https` origins are accepted. Domains cannot be registered through the API.
 
 A verified domain also:
 
@@ -44,9 +100,27 @@ A verified domain also:
 | Endpoint | Authentication |
 |---|---|
 | `GET /orders/{token}` | None. The token is the secret |
-| `GET /site-gate` | API key only. Browser origins are rejected |
-| Everything else | API key **or** trusted browser origin |
+| `GET /site-gate` | Restaurant key only. Browser origins are rejected |
+| `/partner/…` | Partner key, plus the restaurant key for calls about one restaurant. Server only |
+| Everything else | Restaurant key **or** trusted browser origin |
+
+## Partner keys
+
+The partner key belongs to your partner account, not to a restaurant. Create it in the partner portal under **Settings → Partner key** (partner administrators only). It only works against `/api/v1/partner`:
+
+```http
+Authorization: Bearer lbp_test_...
+X-LettBestilt-Restaurant-Key: lbs_test_...
+```
+
+The partner key alone can list and create restaurants. Calls about one existing restaurant also need that restaurant's key in `X-LettBestilt-Restaurant-Key`. The partner API rejects any request with an `Origin` header (`403 FORBIDDEN`), so the partner key must only ever be used from a server. See [Partner API](/partner-api).
 
 ## When authentication fails
 
-The response is `401 UNAUTHORIZED`. `error.message` tells you why: a missing key, a wrong key, or an origin that is not trusted for this slug. See [Errors](/errors) for the envelope.
+| Status and code | Meaning |
+|---|---|
+| `401 UNAUTHORIZED` | Missing, wrong or revoked key, a partner key on a restaurant endpoint, or an origin that is not trusted for this slug. `error.message` says which |
+| `401 KEY_EXPIRED` | The key is valid but past its expiry date |
+| `403 INSUFFICIENT_SCOPE` | The key does not have the scope in `error.details.requiredScope` |
+
+See [Errors](/errors) for the envelope, and [Debugging with request IDs](/debugging) to find the failed call in the API log.

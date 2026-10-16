@@ -5,14 +5,18 @@ subtitle: Check these before real customers order
 
 Work through this list with LettBestilt before you launch a restaurant's site.
 
+Build and test against a sandbox first: it takes test orders and simulated online payments, and sends webhooks like a real restaurant. See [From sandbox to live](/sandbox-to-live).
+
 <Warning>
-There is no sandbox and there are no test keys. Every order you create through the API is a real order for the restaurant. Plan your tests with the restaurant. Online orders that are never paid do not reach the kitchen, so you can test checkout up to the payment page without disturbing anyone.
+With a live key, every order you create is a real order for the restaurant. Plan any tests on the real restaurant with the restaurant. Online orders that are never paid do not reach the kitchen.
 </Warning>
 
 ## Access
 
 - [ ] **The restaurant is live in LettBestilt.** Until it is, every endpoint that takes a slug responds `404 RESTAURANT_NOT_FOUND`, except `GET /site-gate`.
-- [ ] **The API key is on your server only**, in an environment variable. It is not in browser code, a mobile app or a repository.
+- [ ] **The site uses the live key (`lbs_live_…`) and the real slug**, not the sandbox's test key and slug.
+- [ ] **The API key is on your server only**, in an environment variable. It is not in browser code, a mobile app or a repository. The same goes for your partner key.
+- [ ] **The key has the scopes the site needs.** A key limited to some scopes gives `403 INSUFFICIENT_SCOPE` on anything else. If it has an expiry date, a rotation is planned before it.
 - [ ] **Every hostname is verified.** Ask LettBestilt to verify each domain your site runs on, both `example.no` and `www.example.no` if you use both. Browser calls and payment return URLs only work from verified `https` domains.
 - [ ] **All calls go to `https://www.lettbestilt.no/api/v1`.** The bare domain redirects, and the redirect drops the `Authorization` header.
 
@@ -30,7 +34,8 @@ There is no sandbox and there are no test keys. Every order you create through t
 
 ## Webhooks
 
-- [ ] **Your endpoint is public `https`** and registered with LettBestilt for the events you need.
+- [ ] **Your endpoint is public `https`** and registered for the real restaurant with the events you need. Sandbox webhooks do not carry over.
+- [ ] **A test event arrives and verifies.** Use **Send test event** in the partner portal and check the delivery log.
 - [ ] **The signature is verified** over the raw body, and old timestamps are rejected. See [Webhooks](/webhooks).
 - [ ] **You answer `2xx` within 5 seconds** and do slow work afterwards.
 - [ ] **Duplicates are skipped** using `X-LettBestilt-Delivery-Id`.
@@ -46,4 +51,5 @@ There is no sandbox and there are no test keys. Every order you create through t
 ## Launch
 
 - [ ] **If the site uses a password gate during preview**, it reads `GET /site-gate` from the server, so LettBestilt can turn the gate off at launch without a redeploy.
+- [ ] **Check integration is green** in the restaurant's API section in the partner portal. See [Debugging with request IDs](/debugging).
 - [ ] **One real order end to end**: menu, cart, payment, confirmation page, status updates and webhooks, agreed with the restaurant.

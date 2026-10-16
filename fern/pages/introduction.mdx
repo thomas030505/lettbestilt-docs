@@ -22,6 +22,7 @@ The restaurant manages its menu, sold-out items, opening hours and rush mode in 
 - **Table reservations**: available times and reservation requests that the restaurant approves.
 - **Coupons, automatic promotions and newsletter signup.**
 - **Webhooks** to your own systems when orders and reservations change.
+- **Restaurant management** from your own systems with the [partner API](/partner-api): create sandboxes, rotate keys and manage webhooks.
 
 ## The basics
 
@@ -41,13 +42,23 @@ Calls from your server use the restaurant's **API key**. Calls from the browser 
 
 ## What you get from LettBestilt
 
+As a partner you get:
+
+- sandboxes: test restaurants with test keys and simulated online payment, so you can build before a real restaurant exists
+- a partner key for the [partner API](/partner-api)
+
 Per restaurant you build for, you get:
 
-- API keys, which you create and revoke yourself in the partner portal
-- webhook subscriptions to your endpoints, also managed in the partner portal
+- API keys, which you create, limit, rotate and revoke yourself in the partner portal
+- webhook subscriptions to your endpoints, with a delivery log, test events and resend, also in the partner portal
+- an API log and an integration check, so you can see why a call failed without asking us
 - the domains your site runs on, verified for browser calls and payment return URLs
 
 To start building on LettBestilt, [become a partner](https://www.lettbestilt.no/bli-partner).
+
+## Use the docs from your AI assistant
+
+This documentation is also available as an MCP server, so AI assistants and coding agents such as Claude, Cursor or VS Code can search it while you build: `https://docs.lettbestilt.no/_mcp/server`. Add it as a remote MCP server in your tool.
 
 ## Next steps
 
@@ -63,6 +74,12 @@ To start building on LettBestilt, [become a partner](https://www.lettbestilt.no/
   </Card>
   <Card title="Webhooks" icon="bell" href="/webhooks">
     Get signed events when orders and reservations change.
+  </Card>
+  <Card title="Partner API" icon="key" href="/partner-api">
+    Create sandboxes and manage keys and webhooks from your own systems.
+  </Card>
+  <Card title="From sandbox to live" icon="flag-checkered" href="/sandbox-to-live">
+    Build against a sandbox, then switch to the real restaurant.
   </Card>
   <Card title="Go-live checklist" icon="list-check" href="/go-live">
     Everything to check before real customers order.

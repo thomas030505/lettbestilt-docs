@@ -7,12 +7,12 @@ LettBestilt sends an HTTPS `POST` to your endpoint when something happens to a r
 
 ## Getting a subscription
 
-Webhooks are set up per restaurant in the partner portal: **Restaurants → the restaurant → API keys and webhooks**. Choose:
+Webhooks are set up per restaurant, in the partner portal (the restaurant's API section, *API for …*) or with the [partner API](/partner-api) (`POST /partner/restaurants/{slug}/webhooks`). Choose:
 
 - the URL. It must be a public `https://` address.
 - which events you want.
 
-You then receive a signing secret, starting with `whsec_`. It is shown only once, so store it as a secret on your server. A restaurant can have up to 10 webhooks.
+You then receive a signing secret, starting with `whsec_`. It is shown only once, so store it as a secret on your server. A restaurant can have up to 10 webhooks. A sandbox and the real restaurant each have their own webhooks and secrets.
 
 ## Events
 
@@ -27,6 +27,8 @@ You then receive a signing secret, starting with `whsec_`. It is shown only once
 | [`RESERVATION_REJECTED`](/api-reference/webhooks/reservation-rejected) | The restaurant rejects the request |
 
 There is no event for a payment that fails or is abandoned. Such an order never gets `ORDER_PAID`.
+
+There is also a [`PING`](/api-reference/webhooks/ping) test event, sent only when you ask for it in the partner portal. You cannot subscribe to it; see [Test event](#test-event).
 
 ## Payload
 
@@ -64,7 +66,7 @@ Times are ISO 8601 in UTC. For reservations, `orderId` is the same value as `res
 | Header | Meaning |
 |---|---|
 | `X-LettBestilt-Webhook-Id` | The webhook subscription |
-| `X-LettBestilt-Delivery-Id` | Stable per event. Retries of the same event carry the same ID |
+| `X-LettBestilt-Delivery-Id` | Stable per event. Retries of the same event, and deliveries sent again with **Resend**, carry the same ID |
 | `X-LettBestilt-Webhook-Timestamp` | Unix time in seconds when this attempt was signed |
 | `X-LettBestilt-Webhook-Signature` | `sha256=` followed by the hex HMAC |
 
@@ -128,3 +130,46 @@ Answering `401` to a bad signature stops retries for that delivery, which is wha
 - `5xx`, `408`, `429`, redirects, timeouts and network errors count as temporary. LettBestilt tries up to **7 times** in total: right away, then 1 minute, 5 minutes, 15 minutes, 1 hour, 4 hours and 12 hours after the previous attempt (about 17 hours in all). After the seventh failure the delivery is given up.
 - Any other `4xx` is treated as permanent, and the delivery is not retried.
 - Deliveries can arrive more than once and out of order. Skip `X-LettBestilt-Delivery-Id` values you have already handled, and use `createdAt` to order events.
+- Deliveries of a sandbox's test orders work exactly like real ones, including `ORDER_PAID` after a simulated payment.
+
+## Test event
+
+In the partner portal, choose **Send test event** (*Send testhendelse*) on a webhook. LettBestilt sends a signed `PING` to the URL right away and shows the result in the delivery log:
+
+```json
+{
+  "event": "PING",
+  "createdAt": "2026-10-16T09:00:00.000Z",
+  "data": {
+    "webhookId": "cm2whk0001abcdefghijklmn",
+    "restaurantSlug": "pizzaroma-test",
+    "test": true,
+    "message": "Testhendelse fra LettBestilt"
+  }
+}
+```
+
+- It is signed exactly like other events, so it tests your signature check.
+- It works while the webhook is paused, so you can test before you resume.
+- It is never retried. A failure is shown at once.
+- Answer `2xx`. Ignore `PING` in your event handling, or log it.
+
+## Delivery log
+
+Each webhook in the partner portal has a log of its latest deliveries: time, event, HTTP status from your endpoint, number of attempts, the error (as a fixed category such as `HTTP 500` or `request timeout`) and when the next attempt is due. The log never shows the payload. Partner administrators can see it.
+
+Deliveries are kept for **30 days** and then deleted, because payloads can contain customer data.
+
+### Resend
+
+**Resend** (*Send på nytt*) sends a delivery again with the same event and payload, and **the same `X-LettBestilt-Delivery-Id`**. Use it when your endpoint was down or failed on a delivery. Because the ID is the same, an endpoint that did handle the first delivery skips the resend through its deduplication, as it should. The resend is signed with a new timestamp.
+
+Resend is not available while the same delivery is still waiting for a retry, while the webhook is paused, or for a `PING`. Send a new test event instead of resending one.
+
+## Pause and resume
+
+You can pause a webhook in the partner portal (*Sett på pause*) and resume it later (*Gjenoppta*). The URL and the signing secret stay the same. You can also change which events it receives.
+
+While a webhook is paused, events are **not stored and never sent**, also not after you resume. Deliveries that were waiting for a retry are given up. Use pause for planned downtime on your side only when missing events is acceptable; otherwise leave the webhook on and let the retries cover the downtime.
+
+When a real restaurant is archived, its webhooks are paused.

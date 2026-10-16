@@ -3,7 +3,7 @@
   "info": {
     "title": "LettBestilt Public API",
     "version": "1",
-    "description": "Public API for embedding ordering on restaurant websites. All money values are integer øre (1 NOK = 100 øre). Timestamps are ISO-8601 UTC. The tenant key is the `slug` query parameter. Every response includes X-Request-Id; error envelopes include error.requestId. New restaurant keys use lbs_live_<id>_<secret> or lbs_test_<id>_<secret>; legacy lbs_<secret> keys remain accepted. Test keys can access sandbox restaurants before go-live. Inactive sandbox restaurants are available, while other inactive restaurants return 404.",
+    "description": "Public API for embedding ordering on restaurant websites. All money values are integer øre (1 NOK = 100 øre). Timestamps are ISO-8601 UTC. The tenant key is the `slug` query parameter. Every response includes X-Request-Id; error envelopes include error.requestId. New restaurant keys use lbs_live_<id>_<secret> or lbs_test_<id>_<secret>; legacy lbs_<secret> keys remain accepted. Partner keys (lbp_live_/lbp_test_) belong to the partner and only work against /api/v1/partner; the endpoints below reject them with 401. Test keys can access sandbox restaurants before go-live. Inactive sandbox restaurants are available, while other inactive restaurants return 404. The partner API under /api/v1/partner (tag Partner) is server-to-server only: the partner key (lbp_) goes in Authorization, plus the restaurant key in X-LettBestilt-Restaurant-Key for calls about one restaurant.",
     "contact": {
       "name": "LettBestilt AS",
       "email": "support@lettbestilt.no"
@@ -13,6 +13,12 @@
     {
       "url": "https://www.lettbestilt.no",
       "description": "Production"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Partner",
+      "description": "Partner-API-et (/api/v1/partner): partnernøkkelen (lbp_) alene lister og oppretter restauranter; alt som gjelder én eksisterende restaurant krever i tillegg restaurantens egen nøkkel i X-LettBestilt-Restaurant-Key. Bare server-til-server."
     }
   ],
   "components": {
@@ -28,13 +34,46 @@
       "BearerApiKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Per-restaurant public API key. Required for write endpoints when not coming from an allow-listed browser origin. Rotate via the dashboard."
+        "description": "Restaurantens API-nøkkel (lbs_live_… eller lbs_test_…), laget i partnerportalen under restauranten. Påkrevd når kallet ikke kommer fra en betrodd nettleser-origin. En partnernøkkel (lbp_…) gjelder bare /api/v1/partner og avvises her med 401 UNAUTHORIZED. En nøkkel kan ha en utløpsdato: en utløpt nøkkel gir 401 med koden KEY_EXPIRED. En nøkkel kan også være begrenset til enkelte tilganger (scopes); et endepunkt nøkkelen ikke har tilgang til, gir 403 med koden INSUFFICIENT_SCOPE og det påkrevde scopet i error.details.requiredScope."
       },
       "BrowserOrigin": {
         "type": "apiKey",
         "in": "header",
         "name": "Origin",
         "description": "No API key needed when the request's `Origin` header matches a trusted browser origin for this restaurant's slug: the LettBestilt app itself, `{slug}.{appDomain}`, one of the restaurant's verified custom domains, or a slug-bound `{slug}=https://partner.example` entry in PUBLIC_API_ALLOWED_ORIGINS. Unscoped entries are CORS-only and never authenticate. Browsers set `Origin` automatically — this isn't a value you configure — but `apiKey`-in-header is the closest honest OpenAPI representation of the mechanism (see src/lib/public-api-auth.ts). Either this OR BearerApiKey satisfies auth."
+      },
+      "PartnerApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Partnernøkkelen (lbp_test_… eller lbp_live_…), laget i partnerportalen under «Partnernøkkel». Gjelder hele partneren og bare /api/v1/partner. Kun server-til-server: et kall med Origin-header avvises med 403 FORBIDDEN, og nøkkelen må aldri ligge i en nettleser. En TEST-nøkkel ser og lager bare sandkasser; LIVE-nøkler er ikke slått på ennå. En suspendert eller arkivert partner, en tilbaketrukket nøkkel og en restaurantnøkkel (lbs_) her gir 401 UNAUTHORIZED; en utløpt nøkkel gir 401 KEY_EXPIRED."
+      },
+      "RestaurantKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-LettBestilt-Restaurant-Key",
+        "description": "Restaurantens egen nøkkel (lbs_test_… eller lbs_live_…) for kall mot én restaurant i partner-API-et, sendt sammen med partnernøkkelen. Nøkkelen må ha tilgangen «Alt» (ellers 403 INSUFFICIENT_SCOPE), høre til en restaurant partneren eier og ha samme miljø som partnernøkkelen. En restaurant som ikke finnes, hører til en annen partner eller ikke passer med nøkkelen, gir alltid samme 404 RESTAURANT_NOT_FOUND. Eldre nøkler uten miljø i prefikset (lbs_<tilfeldig>) godtas ikke her; roter dem i partnerportalen."
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Mangler, ugyldig eller utløpt API-nøkkel (og kallet kom ikke fra en betrodd nettleser-origin). `error.code` er `UNAUTHORIZED`, eller `KEY_EXPIRED` når nøkkelen er gyldig men utløpt. En partnernøkkel (lbp_) gir alltid `UNAUTHORIZED` her.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InsufficientScope": {
+        "description": "API-nøkkelen mangler tilgangen (scope) dette endepunktet krever. `error.code` er `INSUFFICIENT_SCOPE`, og `error.details.requiredScope` er scopet som kreves (f.eks. `orders.create`). Lag en nøkkel med tilgangen i partnerportalen, eller bruk en nøkkel med «Alt».",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -176,7 +215,7 @@
           },
           "payment": {
             "type": "object",
-            "description": "Public checkout choices. `online` opens one hosted SagaPay page where the customer can choose card, Vipps and any other enabled SagaPay rails; `cash` is paid at pickup/delivery.",
+            "description": "Public checkout choices. `online` opens one hosted SagaPay page where the customer can choose card, Vipps and any other enabled SagaPay rails; `cash` is paid at pickup/delivery. I en sandkasse er online simulert: betalingssiden er LettBestilts testside, og ingen penger flyttes.",
             "required": [
               "online",
               "cash"
@@ -245,6 +284,8 @@
                   "BAD_REQUEST",
                   "UNAUTHORIZED",
                   "FORBIDDEN",
+                  "INSUFFICIENT_SCOPE",
+                  "KEY_EXPIRED",
                   "POPUP_NOT_AVAILABLE",
                   "PRICE_CHANGED",
                   "PAYMENT_INCOMPLETE",
@@ -252,7 +293,18 @@
                   "PAYMENT_PROVIDER_INVALID",
                   "FULFILLMENT_NOT_ALLOWED",
                   "IDEMPOTENCY_CONFLICT",
-                  "INTERNAL_ERROR"
+                  "INTERNAL_ERROR",
+                  "PARTNER_AGREEMENT_REQUIRED",
+                  "IDEMPOTENCY_KEY_REQUIRED",
+                  "SLUG_TAKEN",
+                  "SANDBOX_LIMIT",
+                  "RETENTION",
+                  "RESTAURANT_ARCHIVED",
+                  "KEY_NOT_FOUND",
+                  "KEY_IN_USE",
+                  "WEBHOOK_NOT_FOUND",
+                  "WEBHOOK_LIMIT",
+                  "CHANGED"
                 ]
               },
               "message": {
@@ -1021,7 +1073,7 @@
               "CASH",
               "VIPPS"
             ],
-            "description": "Use STRIPE for online payment: `stripeUrl` is SagaPay's hosted payment page, which offers card, Vipps and the other methods the restaurant has enabled. CASH is paid at pickup/delivery. VIPPS is still accepted for compatibility and also returns the SagaPay page on `stripeUrl`."
+            "description": "Use STRIPE for online payment: `stripeUrl` is SagaPay's hosted payment page, which offers card, Vipps and the other methods the restaurant has enabled. CASH is paid at pickup/delivery. VIPPS is still accepted for compatibility and also returns the SagaPay page on `stripeUrl`. I en sandkasse (testnøkkel) peker `stripeUrl` til LettBestilts testside i stedet for SagaPay, og ingen penger flyttes."
           },
           "locale": {
             "type": "string",
@@ -1104,7 +1156,7 @@
           },
           "stripeUrl": {
             "type": "string",
-            "description": "Hosted SagaPay payment page URL for online orders. Vipps is included inside this page; the field name is historical and does not identify a provider. Redirect the customer here to pay."
+            "description": "Hosted SagaPay payment page URL for online orders. Vipps is included inside this page; the field name is historical and does not identify a provider. Redirect the customer here to pay. I en sandkasse (testnøkkel) peker lenken til LettBestilts testside (`/sandkasse/betaling/{token}`) i stedet for SagaPay. «Betal (test)» markerer ordren betalt og sender ORDER_PAID, «Avbryt» sender kunden til `cancelUrl`. Ingen penger flyttes."
           },
           "vippsUrl": {
             "type": "string",
@@ -1112,6 +1164,480 @@
             "description": "No longer returned (direct Vipps was retired). Kept in the schema for compatibility; use `stripeUrl` for online payment."
           }
         }
+      },
+      "PartnerRestaurant": {
+        "type": "object",
+        "description": "En restaurant slik partnernøkkelen alene ser den. Ingen kontaktinfo, betalingsstatus eller kundedata.",
+        "required": [
+          "slug",
+          "name",
+          "environment",
+          "sandbox",
+          "live",
+          "archived",
+          "createdAt"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Restaurantens nøkkel i hele /api/v1."
+          },
+          "name": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "TEST",
+              "LIVE"
+            ],
+            "description": "TEST = sandkasse, LIVE = ekte restaurant."
+          },
+          "sandbox": {
+            "type": "boolean"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Ekte restaurant som er satt live og tar imot bestillinger. En ny ekte restaurant er ikke live før eieren har signert og satt den live. Alltid false for sandkasser; de tar imot testordre i /api/v1 uansett."
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Arkivert via DELETE (ekte restaurant). Bare LettBestilt kan gjenopprette."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PartnerRestaurantList": {
+        "type": "object",
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PartnerRestaurant"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Send som `cursor` for neste side. null = siste side."
+          }
+        }
+      },
+      "PartnerRestaurantCreate": {
+        "type": "object",
+        "required": [
+          "name",
+          "slug",
+          "email"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 32,
+            "description": "Små bokstaver, tall og bindestrek. Blir `{slug}.lettbestilt.no`. Lagres med små bokstaver."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 160,
+            "description": "Restaurantens kontakt-e-post."
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "orgNumber": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "pickupEnabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "deliveryEnabled": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "PartnerRestaurantApiKey": {
+        "type": "object",
+        "description": "En restaurantnøkkel (lbs_) slik partneren ser den. Aldri hash eller klartekst.",
+        "required": [
+          "id",
+          "name",
+          "last4",
+          "environment",
+          "scopes",
+          "status",
+          "expiresAt",
+          "revokedAt",
+          "createdAt",
+          "lastUsedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Brukes til rotasjon og tilbaketrekking."
+          },
+          "name": {
+            "type": "string"
+          },
+          "last4": {
+            "type": "string",
+            "description": "Siste fire tegn av nøkkelen."
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "TEST",
+              "LIVE"
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "[\"*\"] = «Alt»."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "expired",
+              "revoked"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Fram i tid = virker til da (overgang ved rotasjon)."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Oppløsning ca. 5 minutter."
+          }
+        }
+      },
+      "PartnerNewRestaurantKey": {
+        "type": "object",
+        "description": "En ny restaurantnøkkel med klarteksten i `key`, vist ÉN gang. Samme form ved opprettelse og rotasjon.",
+        "required": [
+          "id",
+          "name",
+          "last4",
+          "environment",
+          "scopes",
+          "key"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "last4": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "TEST",
+              "LIVE"
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "key": {
+            "type": "string",
+            "description": "lbs_test_… eller lbs_live_…. Lagre den nå."
+          }
+        }
+      },
+      "PartnerRestaurantCreated": {
+        "type": "object",
+        "required": [
+          "data",
+          "restaurantKey"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PartnerRestaurant"
+          },
+          "restaurantKey": {
+            "description": "Den nye restaurantnøkkelen med «Alt», i klartekst ÉN gang (201). null ved replay (200): nøkkelen vises aldri på nytt. Mistet du den, lag en ny nøkkel i partnerportalen under restauranten.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartnerNewRestaurantKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replayed": {
+            "type": "boolean",
+            "description": "true når svaret er en replay av samme Idempotency-Key."
+          },
+          "message": {
+            "type": "string",
+            "description": "Ved replay: hvorfor nøkkelen mangler, og hvor en ny lages."
+          }
+        }
+      },
+      "PartnerWebhook": {
+        "type": "object",
+        "description": "En webhook. Hemmeligheten vises bare når den opprettes.",
+        "required": [
+          "id",
+          "url",
+          "events",
+          "active",
+          "createdAt",
+          "lastDeliveryAt",
+          "lastDeliveryStatus",
+          "lastFailureAt",
+          "lastFailureReason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ORDER_CREATED",
+                "ORDER_PAID",
+                "ORDER_STATUS_CHANGED",
+                "ORDER_CANCELLED",
+                "RESERVATION_REQUESTED",
+                "RESERVATION_APPROVED",
+                "RESERVATION_REJECTED"
+              ]
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastDeliveryAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastDeliveryStatus": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "HTTP-status fra mottakeren ved siste leveranse."
+          },
+          "lastFailureAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastFailureReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fast kategori, f.eks. `HTTP 500` eller `request timeout`."
+          }
+        }
+      },
+      "PartnerWebhookCreated": {
+        "type": "object",
+        "required": [
+          "data",
+          "secret"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PartnerWebhook"
+          },
+          "secret": {
+            "type": "string",
+            "description": "Signeringshemmeligheten (HMAC-SHA256), vist ÉN gang."
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "PartnerRestaurantDetails": {
+        "description": "Detaljer med begge nøkler. Ingen kontaktinfo eller kundedata.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PartnerRestaurant"
+          },
+          {
+            "type": "object",
+            "required": [
+              "archivedAt",
+              "setup",
+              "payment",
+              "domains",
+              "webhooks",
+              "apiKeys"
+            ],
+            "properties": {
+              "archivedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "setup": {
+                "type": "object",
+                "required": [
+                  "confirmedSteps",
+                  "totalSteps",
+                  "launched"
+                ],
+                "properties": {
+                  "confirmedSteps": {
+                    "type": "integer",
+                    "description": "Bekreftede oppsettssteg i «Kom i gang»."
+                  },
+                  "totalSteps": {
+                    "type": "integer"
+                  },
+                  "launched": {
+                    "type": "boolean",
+                    "description": "Eieren har satt restauranten live minst én gang."
+                  }
+                }
+              },
+              "payment": {
+                "description": "Nettbetaling med SagaPay. null for sandkasser (der er betalingen simulert).",
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "state",
+                      "label",
+                      "description"
+                    ],
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "NOT_STARTED",
+                          "IN_PROGRESS",
+                          "ACTIVE",
+                          "FAILED"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "domains": {
+                "type": "array",
+                "description": "Verifiserte domener.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "domain",
+                    "primary",
+                    "verifiedAt"
+                  ],
+                  "properties": {
+                    "domain": {
+                      "type": "string"
+                    },
+                    "primary": {
+                      "type": "boolean"
+                    },
+                    "verifiedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "webhooks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PartnerWebhook"
+                }
+              },
+              "apiKeys": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PartnerRestaurantApiKey"
+                }
+              }
+            }
+          }
+        ]
       }
     }
   },
@@ -1182,6 +1708,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "404": {
             "description": "Restaurant not found",
@@ -1415,6 +1947,12 @@
           "304": {
             "description": "Not modified (ETag matched)"
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
+          },
           "404": {
             "description": "Restaurant not found",
             "content": {
@@ -1492,6 +2030,12 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
+          },
           "429": {
             "description": "Rate limited",
             "content": {
@@ -1532,14 +2076,15 @@
             "schema": {
               "type": "string"
             },
-            "description": "Success URL the customer returns to after paying. Must match NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_APP_DOMAIN. Use {TOKEN} as placeholder for publicToken."
+            "description": "Success URL the customer returns to after paying. Must be https on lettbestilt.no (or a subdomain), on a verified domain belonging to the restaurant or its partner, or on a domain LettBestilt has approved manually; otherwise 400 INVALID_SUCCESS_URL. Partners cannot register domains through the API: ask LettBestilt to verify a new host. Use {TOKEN} as placeholder for publicToken. I en sandkasse kan du utelate den; uten successUrl kommer kunden tilbake til testsiden, som viser at bestillingen er betalt."
           },
           {
             "name": "cancelUrl",
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "URL the customer returns to if the payment is cancelled. Must be https on lettbestilt.no (or a subdomain), on a verified domain belonging to the restaurant or its partner, or on a domain LettBestilt has approved manually; otherwise 400 INVALID_CANCEL_URL. Partners cannot register domains through the API: ask LettBestilt to verify a new host. I en sandkasse kan du utelate den; uten cancelUrl kommer kunden tilbake til testsiden, som viser at betalingen er avbrutt."
           },
           {
             "name": "Idempotency-Key",
@@ -1575,7 +2120,7 @@
             }
           },
           "401": {
-            "description": "Missing / invalid API key (and not from a trusted browser origin)",
+            "description": "Missing / invalid API key (and not from a trusted browser origin), eller utløpt nøkkel (KEY_EXPIRED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1583,6 +2128,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "409": {
             "description": "Konflikt — ingen ny ordre opprettet. `code: \"PRICE_CHANGED\"`: `expectedTotal` ble sendt og serverens autoritative sum er høyere (`error.details: { expectedTotal, actualTotal, currency }`) — hent priser på nytt og prøv igjen. `code: \"PAYMENT_PENDING\"`: replay av en `Idempotency-Key` der ordren nettopp ble opprettet og betalingslenken fortsatt lages — vent et par sekunder og prøv igjen med SAMME nøkkel. `code: \"PAYMENT_INCOMPLETE\"`: samme situasjon, men ordren er for gammel til at kallet kan være underveis — betalingslenken ble aldri opprettet (`error.details: { orderId }`), start bestillingen på nytt. `code: \"IDEMPOTENCY_CONFLICT\"`: `Idempotency-Key` er allerede brukt av en bordreservasjon (`POST /reservations`) — nøklene deler navnerom per restaurant; lag en ny nøkkel. `publicToken` returneres aldri i disse feilene.",
@@ -1620,7 +2168,7 @@
     "/api/v1/orders/{token}": {
       "get": {
         "summary": "Public order tracking by publicToken",
-        "description": "`order.restaurant.address` er hentestedet — restaurantens besøksadresse (eller `null`), samme objekt som GET /api/v1/menu returnerer. Rendrer du kart, gate det på `order.restaurant.trackingShowMap` OG på at `address.latitude` finnes: eieren kan skru av kartet, og en restaurant uten kartpunkt har ingen koordinater å vise.",
+        "description": "`order.restaurant.address` er hentestedet — restaurantens besøksadresse (eller `null`), samme objekt som GET /api/v1/menu returnerer. Rendrer du kart, gate det på `order.restaurant.trackingShowMap` OG på at `address.latitude` finnes: eieren kan skru av kartet, og en restaurant uten kartpunkt har ingen koordinater å vise. `payment.provider` er `SANDBOX` for testbetalinger i sandkassen; behandle ukjente verdier som nettbetaling.",
         "security": [],
         "parameters": [
           {
@@ -1813,7 +2361,7 @@
             }
           },
           "401": {
-            "description": "Missing / invalid API key (and not from a trusted browser origin)",
+            "description": "Missing / invalid API key (and not from a trusted browser origin), eller utløpt nøkkel (KEY_EXPIRED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1821,6 +2369,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "404": {
             "description": "Restaurant not found",
@@ -1897,7 +2448,7 @@
             }
           },
           "401": {
-            "description": "Mangler/ugyldig API-nøkkel eller ikke-betrodd origin",
+            "description": "Mangler/ugyldig API-nøkkel eller ikke-betrodd origin, eller utløpt nøkkel (KEY_EXPIRED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1905,6 +2456,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "404": {
             "description": "Restaurant not found",
@@ -1993,7 +2547,7 @@
             }
           },
           "401": {
-            "description": "Mangler/ugyldig API-nøkkel, eller kallet kom fra en nettleser-origin i stedet for med Bearer-nøkkel",
+            "description": "Mangler/ugyldig API-nøkkel, utløpt nøkkel (KEY_EXPIRED), eller kallet kom fra en nettleser-origin i stedet for med Bearer-nøkkel",
             "content": {
               "application/json": {
                 "schema": {
@@ -2001,6 +2555,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "404": {
             "description": "Restaurant not found",
@@ -2167,7 +2724,7 @@
             }
           },
           "401": {
-            "description": "Unauthorized",
+            "description": "Unauthorized, eller utløpt nøkkel (KEY_EXPIRED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2175,6 +2732,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "409": {
             "description": "Enten `IDEMPOTENCY_CONFLICT` i standard Error-konvolutt (samme nøkkel er brukt med annen payload/API-type), eller `ONLINE_BOOKING_CLOSED` i den historiske flate feilformen når restauranten har stengt online-booking.",
@@ -2309,7 +2869,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid API key (and not from a trusted browser origin)",
+            "description": "Missing/invalid API key (and not from a trusted browser origin), eller utløpt nøkkel (KEY_EXPIRED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2317,6 +2877,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "404": {
             "description": "Restaurant not found, or popup not available",
@@ -2545,7 +3108,7 @@
             }
           },
           "401": {
-            "description": "Authentication failed",
+            "description": "Authentication failed, eller utløpt nøkkel (KEY_EXPIRED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2553,6 +3116,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
           },
           "404": {
             "description": "Restaurant not found",
@@ -2808,6 +3374,1089 @@
                       }
                     }
                   ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/InsufficientScope"
+          }
+        }
+      }
+    },
+    "/api/v1/partner/restaurants": {
+      "get": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "List partnerens restauranter",
+        "description": "Partnernøkkelen alene. En TEST-nøkkel ser bare sandkasser, en LIVE-nøkkel bare ekte restauranter. Arkiverte restauranter er med (`archived: true`). Sortert på slug, cursor-paginert.",
+        "security": [
+          {
+            "PartnerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "description": "`nextCursor` fra forrige side."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Én side med restauranter.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerRestaurantList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`VALIDATION_FAILED`: ugyldig `limit` eller `cursor` (`error.details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "Opprett en restaurant",
+        "description": "Partnernøkkelen alene. En TEST-nøkkel lager en sandkasse (ikke live, ingen bestillingsside, høyst 20 per partner). En LIVE-nøkkel lager en ekte restaurant som ikke er live; eieren signerer og setter den live. Svaret har en ny restaurantnøkkel med «Alt» i klartekst ÉN gang. Idempotency-Key gjelder per partner i 30 dager: samme nøkkel med samme input gir 200 med samme restaurant, `restaurantKey: null` og en `message`. Restaurantnøkkelen vises aldri på nytt, og alle restaurant-endepunktene krever den; mistet du den (for eksempel fordi det første svaret aldri kom fram), lag en ny nøkkel i partnerportalen under restauranten. Annen input, annet miljø, eller en restaurant som er slettet eller flyttet, gir 409 `IDEMPOTENCY_CONFLICT`. En slug som alt er tatt, gir 409 `SLUG_TAKEN` uten å telle mot grensen. Høyst 10 opprettelser i timen per partnernøkkel og 20 per partner.",
+        "security": [
+          {
+            "PartnerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "description": "Unik per restaurant du vil opprette, f.eks. en UUID."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartnerRestaurantCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Replay av samme Idempotency-Key: samme restaurant, `restaurantKey: null`, `replayed: true`, en `message` og headeren `Idempotent-Replayed: true`.",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerRestaurantCreated"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Opprettet. Lagre `restaurantKey.key` nå.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerRestaurantCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`IDEMPOTENCY_KEY_REQUIRED` (mangler eller ugyldig Idempotency-Key) eller `INVALID_JSON`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`SLUG_TAKEN` (slugen er i bruk), `SANDBOX_LIMIT` (20 sandkasser) eller `IDEMPOTENCY_CONFLICT`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`VALIDATION_FAILED`. `error.details.issues` lister feltene.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/partner/restaurants/{slug}": {
+      "parameters": [
+        {
+          "name": "slug",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "Detaljer om én restaurant",
+        "description": "Partnernøkkel + restaurantnøkkel. Oppsettsstatus, SagaPay-status (ekte restauranter), verifiserte domener, webhooks uten hemmelighet og restaurantnøkler (navn, siste fire tegn, miljø, tilganger, utløp). Virker også for en arkivert restaurant.",
+        "security": [
+          {
+            "PartnerApiKey": [],
+            "RestaurantKeyHeader": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restauranten.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PartnerRestaurantDetails"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`RESTAURANT_NOT_FOUND`. Samme svar når slugen ikke finnes, hører til en annen partner eller ikke passer med restaurantnøkkelen.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "Slett en sandkasse, eller arkiver en ekte restaurant",
+        "description": "Partnernøkkel + restaurantnøkkel. En sandkasse slettes for godt (`result: \"deleted\"`), sammen med nøklene sine; et nytt DELETE med samme restaurantnøkkel gir derfor 401. Bekreft med GET /api/v1/partner/restaurants at slugen er borte. En ekte restaurant slettes aldri: den arkiveres (`result: \"archived\"`), skrus av og stenges i /api/v1, mens ordre og regnskap bevares. Webhookene settes på pause, og restaurantnøklene virker fortsatt mot partner-API-et, så du kan lese restauranten, trekke tilbake nøkler og slette webhooks. Bare LettBestilt kan gjenopprette den. Arkiveringen er idempotent: en restaurant som alt er arkivert, gir 200 igjen. Høyst 10 i timen per partnernøkkel.",
+        "security": [
+          {
+            "PartnerApiKey": [],
+            "RestaurantKeyHeader": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Slettet eller arkivert.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "result",
+                        "slug"
+                      ],
+                      "properties": {
+                        "result": {
+                          "type": "string",
+                          "enum": [
+                            "deleted",
+                            "archived"
+                          ]
+                        },
+                        "slug": {
+                          "type": "string"
+                        },
+                        "archivedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Bare når `result` er `archived`."
+                        },
+                        "wasLive": {
+                          "type": "boolean",
+                          "description": "Om restauranten var live da den ble arkivert (bare første gang)."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`RESTAURANT_NOT_FOUND`. Samme svar når slugen ikke finnes, hører til en annen partner eller ikke passer med restaurantnøkkelen.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`RETENTION` (sandkassen har regnskapsmateriale som skal oppbevares; `details.blockers`) eller `CHANGED` (endret samtidig, prøv igjen).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/partner/restaurants/{slug}/keys/{keyId}": {
+      "parameters": [
+        {
+          "name": "slug",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "keyId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "Trekk tilbake en restaurantnøkkel",
+        "description": "Partnernøkkel + restaurantnøkkel. Straks (`graceHours: 0`, standard) eller om inntil 24 timer. Nøkkelen i X-LettBestilt-Restaurant-Key kan ikke trekkes tilbake straks (409 `KEY_IN_USE`); roter den i stedet. Lov også for en arkivert restaurant: tilgang kan alltid fjernes.",
+        "security": [
+          {
+            "PartnerApiKey": [],
+            "RestaurantKeyHeader": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "graceHours": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 24,
+                    "default": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Trukket tilbake (eller planlagt).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "revokedAt"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "revokedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_JSON`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`RESTAURANT_NOT_FOUND`, eller `KEY_NOT_FOUND` når nøkkelen ikke hører til restauranten.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`KEY_IN_USE` eller `CHANGED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`VALIDATION_FAILED`: ugyldig `graceHours` (`error.details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/partner/restaurants/{slug}/keys/{keyId}/rotate": {
+      "parameters": [
+        {
+          "name": "slug",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "keyId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "Roter en restaurantnøkkel",
+        "description": "Partnernøkkel + restaurantnøkkel. Den nye nøkkelen lages først, arver tilgangene og vises i klartekst ÉN gang, i `restaurantKey.key` (samme form som når restauranten opprettes). Den gamle virker i `graceHours` (standard 24) så nettsiden kan byttes uten nedetid. Sperret for en arkivert restaurant.",
+        "security": [
+          {
+            "PartnerApiKey": [],
+            "RestaurantKeyHeader": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "description": "Navn på den nye nøkkelen."
+                  },
+                  "graceHours": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 24,
+                    "default": 24
+                  },
+                  "expiresOn": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Valgfri siste gyldige dag (Oslo), fra i morgen til to år frem."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ny nøkkel. Lagre `restaurantKey.key` nå.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "restaurantKey",
+                    "effectiveAt"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PartnerRestaurantApiKey"
+                    },
+                    "restaurantKey": {
+                      "$ref": "#/components/schemas/PartnerNewRestaurantKey"
+                    },
+                    "effectiveAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Når den gamle nøkkelen slutter å virke."
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_JSON`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`RESTAURANT_NOT_FOUND`, eller `KEY_NOT_FOUND` når nøkkelen ikke finnes eller alt er trukket tilbake.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`CHANGED` eller `RESTAURANT_ARCHIVED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`VALIDATION_FAILED`: mangler `name`, ugyldig `graceHours` eller `expiresOn` (`error.details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/partner/restaurants/{slug}/webhooks": {
+      "parameters": [
+        {
+          "name": "slug",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "List restaurantens webhooks",
+        "description": "Partnernøkkel + restaurantnøkkel. Aldri hemmeligheten. Høyst 10 per restaurant, så `nextCursor` er alltid null.",
+        "security": [
+          {
+            "PartnerApiKey": [],
+            "RestaurantKeyHeader": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhookene.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PartnerWebhook"
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`RESTAURANT_NOT_FOUND`. Samme svar når slugen ikke finnes, hører til en annen partner eller ikke passer med restaurantnøkkelen.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "Opprett en webhook",
+        "description": "Partnernøkkel + restaurantnøkkel. URL-en må være en offentlig https://-adresse. Hemmeligheten for å verifisere signaturen vises ÉN gang. Sperret for en arkivert restaurant.",
+        "security": [
+          {
+            "PartnerApiKey": [],
+            "RestaurantKeyHeader": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "url",
+                  "events"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "events": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "ORDER_CREATED",
+                        "ORDER_PAID",
+                        "ORDER_STATUS_CHANGED",
+                        "ORDER_CANCELLED",
+                        "RESERVATION_REQUESTED",
+                        "RESERVATION_APPROVED",
+                        "RESERVATION_REJECTED"
+                      ]
+                    }
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Opprettet. Lagre `secret` nå.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerWebhookCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_JSON`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`RESTAURANT_NOT_FOUND`. Samme svar når slugen ikke finnes, hører til en annen partner eller ikke passer med restaurantnøkkelen.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`WEBHOOK_LIMIT` (10 per restaurant) eller `RESTAURANT_ARCHIVED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`VALIDATION_FAILED`: mangler url eller events, eller URL-en er ikke en offentlig https://-adresse (`error.details.issues`, f.eks. `path: \"url\"`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/partner/restaurants/{slug}/webhooks/{webhookId}": {
+      "parameters": [
+        {
+          "name": "slug",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "webhookId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Partner"
+        ],
+        "summary": "Slett en webhook",
+        "description": "Partnernøkkel + restaurantnøkkel. Lov også for en arkivert restaurant: en mottaker kan alltid fjernes.",
+        "security": [
+          {
+            "PartnerApiKey": [],
+            "RestaurantKeyHeader": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Slettet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "deleted"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "deleted": {
+                          "const": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Mangler eller ugyldig nøkkel (`UNAUTHORIZED`), eller utløpt nøkkel (`KEY_EXPIRED`). Gjelder også en suspendert eller arkivert partner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`FORBIDDEN` når kallet har en Origin-header (bare server-til-server), `PARTNER_AGREEMENT_REQUIRED` for en LIVE-nøkkel uten signerte partneravtaler, eller `INSUFFICIENT_SCOPE` når restaurantnøkkelen ikke har «Alt» (details.requiredScope = \"*\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`RESTAURANT_NOT_FOUND`, eller `WEBHOOK_NOT_FOUND` når webhooken ikke hører til restauranten.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`. 120 kall i minuttet per partnernøkkel; strengere for opprettelse, sletting og endringer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
