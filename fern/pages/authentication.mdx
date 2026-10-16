@@ -23,7 +23,7 @@ Send the restaurant's API key as a bearer token:
 Authorization: Bearer lbs_live_...
 ```
 
-- Keys are created **per restaurant** in the partner portal, in the restaurant's API section (*API for …*). A key only works for that restaurant. When you create a sandbox with the partner API, the response includes its first key.
+- Keys are created **per restaurant** in the partner portal, on the restaurant's **API** tab. A key only works for that restaurant. When you create a sandbox with the partner API, the response includes its first key.
 - A test key never works against a live restaurant, and the other way round.
 - The full key is shown only once. LettBestilt stores only a hash and cannot show it again.
 - A restaurant can have several active keys. To rotate without downtime, choose **Rotate**: you get a new key, and the old one keeps working for up to 24 hours while you deploy it. **Revoke now** stops a key immediately, for example if it has leaked. See [Rotating keys without downtime](/rotating-keys).
