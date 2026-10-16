@@ -5,6 +5,13 @@ subtitle: Changes to the LettBestilt API and the partner tools
 
 Newest first. New fields, endpoints, error codes and events can appear in `/api/v1` at any time, so ignore what you do not recognise.
 
+## 2026-10-16: Campaign tracking
+
+### New
+
+- **[Campaign tracking](/campaign-tracking).** A script for the restaurant's website, `https://www.lettbestilt.no/sporing/v1.js`, remembers the newsletter campaign a subscriber clicked for 30 days and hands it to the order with `LettBestilt.orderFields()`. Only newsletter subscribers are tracked, and the script sends nothing itself.
+- `attributedCampaignId` in the `ORDER_CREATED` and `ORDER_PAID` webhooks: the campaign the order was credited to, or `null`.
+
 ## 2026-10-16: Partner API, scopes and sandbox payments
 
 **Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed. Existing keys keep full access, so integrations that work today keep working without changes.

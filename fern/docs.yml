@@ -92,6 +92,9 @@ navigation:
           - page: Webhooks
             slug: webhooks
             path: ./pages/webhooks.mdx
+          - page: Campaign tracking
+            slug: campaign-tracking
+            path: ./pages/campaign-tracking.mdx
       - section: Partners
         skip-slug: true
         contents:

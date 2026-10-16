@@ -1,0 +1,67 @@
+---
+title: Campaign tracking
+subtitle: Count orders from the restaurant's newsletter on the right campaign
+---
+
+When a restaurant sends a newsletter from LettBestilt, the links to its website carry `?lb_campaign=<id>`. If the order that follows includes that ID, the order counts as a conversion for the campaign, and the restaurant sees orders and revenue per campaign in its dashboard.
+
+**Only newsletter subscribers are tracked.** The parameter is only on links in the newsletter, so the only visitors that are remembered are subscribers who click in an email they signed up for. Nothing is recorded about other visitors: no page views, no events, no cookies.
+
+## Add the script
+
+Paste one line on every page of the restaurant's website, preferably in `<head>`. You also find it, ready to copy, on the restaurant's **API** tab in the partner portal.
+
+```html
+<script src="https://www.lettbestilt.no/sporing/v1.js" async></script>
+```
+
+The script:
+
+- reads `lb_campaign` from the address when a subscriber arrives from the newsletter
+- remembers it in the browser (`localStorage`, key `lettbestilt-attribution`) for 30 days. A newer campaign link replaces it
+- removes `lb_campaign` from the address bar, so a link the subscriber shares is not credited to the campaign. Add `data-keep-url` to the script tag to keep it
+- sends nothing to any server
+
+## Send the campaign with the order
+
+If your checkout posts a form, add a hidden field. The script fills it in:
+
+```html
+<input type="hidden" name="attributionCampaignId">
+```
+
+If your checkout sends the order with JavaScript, spread `LettBestilt.orderFields()` into the body. It returns `{ attributionCampaignId }`, or `{}` when there is no campaign:
+
+```ts
+const body = {
+  items,
+  customer,
+  fulfillment,
+  paymentMethod,
+  ...(window.LettBestilt?.orderFields() ?? {}),
+};
+```
+
+Reservations name the field `attributedCampaignId`. Use `LettBestilt.reservationFields()` for `POST /reservations`.
+
+If the order is sent from your server, pass the value from the browser along with the rest of the checkout data. The server needs nothing else.
+
+| Function | Returns |
+|---|---|
+| `LettBestilt.campaignId()` | The campaign ID, or `null` |
+| `LettBestilt.orderFields()` | `{ attributionCampaignId }` or `{}`, for `POST /orders` |
+| `LettBestilt.reservationFields()` | `{ attributedCampaignId }` or `{}`, for `POST /reservations` |
+| `LettBestilt.fill(root?)` | Fills empty `attributionCampaignId` fields in forms, returns how many it found |
+| `LettBestilt.capture(url?)` | Reads a campaign link. For single-page apps that change the address without loading a new page |
+| `LettBestilt.clear()` | Forgets the campaign |
+
+## Check that it works
+
+The [`ORDER_CREATED`](/api-reference/webhooks/order-created) and [`ORDER_PAID`](/api-reference/webhooks/order-paid) webhooks include `attributedCampaignId`: the campaign the order was credited to, or `null`. An ID that does not belong to the restaurant is dropped and never blocks the order, so `null` on an order you expected to be credited means the ID was missing or wrong.
+
+To test: send a test campaign from the restaurant's dashboard, click the link in the email, place a small cash order, and check the webhook or the campaign's results.
+
+## Requirements
+
+- The restaurant's **website** must be set to the site's address in LettBestilt. Newsletter links only get `lb_campaign` when they point to the restaurant's own domains.
+- The newsletter signup on your site must say that the restaurant records opens, clicks and orders from the newsletter, and that the website remembers the campaign in the browser for 30 days. That is the subscriber's consent. Someone who unsubscribes gets no new campaign links.

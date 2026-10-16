@@ -52,14 +52,14 @@ Every event has the same envelope:
 
 | Event | Also in `data` |
 |---|---|
-| `ORDER_CREATED` | `status`, `total`, `fulfillment`, `paymentMethod`, `estimatedReadyAt`, `requestedPickupAt` |
-| `ORDER_PAID` | `status` (`PAID`), `total` |
+| `ORDER_CREATED` | `status`, `total`, `fulfillment`, `paymentMethod`, `estimatedReadyAt`, `requestedPickupAt`, `attributedCampaignId` |
+| `ORDER_PAID` | `status` (`PAID`), `total`, `attributedCampaignId` |
 | `ORDER_STATUS_CHANGED`, `ORDER_CANCELLED` | `previousStatus`, `status` |
 | `RESERVATION_REQUESTED` | `dineInAt`, `partySize` |
 | `RESERVATION_APPROVED` | `dineInAt`, `partySize`, `tableId` |
 | `RESERVATION_REJECTED` | `reason` (or `null`) |
 
-Times are ISO 8601 in UTC. For reservations, `orderId` is the same value as `reservationId` from `POST /reservations`. Need more than the payload? Fetch the order with `GET /orders/{publicToken}`.
+`attributedCampaignId` is the newsletter campaign the order was credited to, or `null`; see [Campaign tracking](/campaign-tracking). Times are ISO 8601 in UTC. For reservations, `orderId` is the same value as `reservationId` from `POST /reservations`. Need more than the payload? Fetch the order with `GET /orders/{publicToken}`.
 
 ## Headers
 

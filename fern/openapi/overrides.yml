@@ -1451,6 +1451,7 @@ webhooks:
                 paymentMethod: STRIPE
                 estimatedReadyAt: "2026-10-16T15:37:11.000Z"
                 requestedPickupAt: null
+                attributedCampaignId: null
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
@@ -1494,6 +1495,7 @@ webhooks:
                 publicToken: cm2tok0001abcdefghijklmn
                 status: PAID
                 total: 33800
+                attributedCampaignId: null
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
@@ -1937,6 +1939,9 @@ components:
           type: [string, "null"]
           format: date-time
           description: The agreed time for a pre-order, otherwise `null`.
+        attributedCampaignId:
+          type: [string, "null"]
+          description: The newsletter campaign the order was credited to, or `null`. See [Campaign tracking](/campaign-tracking).
     OrderPaidData:
       type: object
       description: The `data` of an `ORDER_PAID` event.
@@ -1954,6 +1959,9 @@ components:
         total:
           type: integer
           description: The amount paid, in øre.
+        attributedCampaignId:
+          type: [string, "null"]
+          description: The newsletter campaign the order was credited to, or `null`. See [Campaign tracking](/campaign-tracking).
     ReservationRequestedData:
       type: object
       description: The `data` of a `RESERVATION_REQUESTED` event.
@@ -2299,10 +2307,14 @@ components:
           description: The customer's consent to marketing, given at checkout.
         attributionCampaignId:
           description: >-
-            Campaign attribution: the value of `?lb_campaign=<id>` from a
-            LettBestilt campaign link. Pass it on unchanged at checkout, and the
-            order counts as a conversion for the campaign. Optional metadata: an
-            invalid or unknown ID is dropped silently and never blocks the order.
+            Campaign attribution: the value of `?lb_campaign=<id>` from a link in
+            the restaurant's newsletter. Pass it on unchanged at checkout, and the
+            order counts as a conversion for the campaign. The tracking script
+            gives it to you with `LettBestilt.orderFields()`; see
+            [Campaign tracking](/campaign-tracking). Optional metadata: an
+            invalid or unknown ID is dropped and never blocks the order. The
+            `ORDER_CREATED` and `ORDER_PAID` webhooks show the result in
+            `attributedCampaignId`.
         buyerCompanyName:
           description: "B2B: the company name on the receipt."
         buyerOrgNumber:
