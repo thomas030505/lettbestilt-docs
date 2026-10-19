@@ -3,10 +3,10 @@ title: Partner API
 subtitle: Create and manage restaurants from your own systems
 ---
 
-The partner API, under `https://www.lettbestilt.no/api/v1/partner`, lets you create sandboxes, read a restaurant's setup, rotate and revoke its keys, and manage its webhooks without opening the partner portal. Everything it does can also be done in the portal.
+The partner API, under `https://www.lettbestilt.no/api/v1/partner`, lets you create sandboxes, read a restaurant's setup, rotate and revoke its keys, manage its webhooks and domains, import its menu from a PDF or photo, invite its owner and ask LettBestilt for go-live approval, without opening the partner portal. Everything it does can also be done in the portal. The same setup is available to AI assistants through the [MCP server](/mcp).
 
 <Note>
-Partner keys are test keys for now (`lbp_test_…`). They see and create only sandboxes. Live partner keys are not available yet; real restaurants are created in the partner portal.
+Partner keys are test keys for now (`lbp_test_…`). They see and create only sandboxes. Live partner keys are not available yet; until they are, real restaurants are created in the partner portal, and inviting the owner and asking for go-live approval are done there too. The endpoints for real restaurants are described below so you can build against them.
 </Note>
 
 ## Two keys
@@ -28,6 +28,10 @@ The partner key alone can only see the surface and create new restaurants. Anyth
 | `DELETE /partner/restaurants/{slug}` | | ✓ |
 | `POST …/keys/{keyId}/rotate`, `DELETE …/keys/{keyId}` | | ✓ |
 | `GET`, `POST …/webhooks`, `DELETE …/webhooks/{webhookId}` | | ✓ |
+| `GET`, `POST …/domains`, `DELETE`, `PATCH …/domains/{domainId}`, `POST …/domains/{domainId}/verify` | | ✓ |
+| `POST …/menu-imports`, `GET …/menu-imports/{importId}`, `POST …/menu-imports/{importId}/commit` | | ✓ |
+| `POST`, `DELETE …/owner-invite` (real restaurants) | | ✓ |
+| `POST`, `DELETE …/go-live-review` (real restaurants) | | ✓ |
 
 Send them like this:
 
@@ -107,7 +111,7 @@ A slug that is already in use gives `409 SLUG_TAKEN`. That does not count toward
 ## Read, list and delete
 
 - `GET /partner/restaurants` lists your restaurants with slug, name, environment, whether it is live or archived, and when it was created. It is paginated: pass `nextCursor` back as `cursor` until it is `null`. `limit` is 1–100 (default 25).
-- `GET /partner/restaurants/{slug}` returns setup status, SagaPay status (real restaurants only), verified domains, webhooks without secrets, and the restaurant's keys: name, last four characters, environment, scopes and expiry.
+- `GET /partner/restaurants/{slug}` returns setup status, SagaPay status, owner status (`owner`) and go-live status (`goLive`) (these three are `null` for sandboxes), verified domains, webhooks without secrets, and the restaurant's keys: name, last four characters, environment, scopes and expiry.
 - `DELETE /partner/restaurants/{slug}`:
   - **A sandbox is deleted for good**, together with its keys. A second `DELETE` with the same key therefore gives `401`. Confirm with the list that the slug is gone. A sandbox with accounting records that must be kept cannot be deleted (`409 RETENTION`).
   - **A real restaurant is never deleted.** It is archived: turned off and closed in `/api/v1`, while orders and accounting records are kept. Its webhooks are paused. You can still read it, revoke its keys and delete its webhooks, but not rotate keys or add webhooks (`409 RESTAURANT_ARCHIVED`). **Only LettBestilt can restore an archived restaurant.**
@@ -131,6 +135,49 @@ const { data } = await res.json(); // { result: "deleted", slug: "pizzaroma-test
 
 Key ids are in `apiKeys` in `GET /partner/restaurants/{slug}`.
 
+## Domains
+
+A verified domain lets the restaurant's site call `/api/v1` from the browser and use the domain for `successUrl` and `cancelUrl`. See [Authentication](/authentication#trusted-browser-origin).
+
+- `POST …/domains` with `{ "domain": "www.pizzaroma.no" }` adds a domain. The response has the TXT record in `verification` (`name` is `_lettbestilt-verify.www.pizzaroma.no`, plus a `value`). Add it at the DNS provider.
+- `POST …/domains/{domainId}/verify` looks up the record and verifies the domain. It is safe to repeat: an already verified domain gives `200`. If the record is not found yet you get `422 DOMAIN_NOT_VERIFIED`; DNS changes can take a while.
+- `GET …/domains` lists all domains, including those waiting for verification.
+- `PATCH …/domains/{domainId}` with `{ "primary": true }` makes a verified domain the one LettBestilt's tracking links in emails and on receipts go to.
+- `DELETE …/domains/{domainId}` removes a domain. A domain LettBestilt manages gives `409 DOMAIN_MANAGED`.
+
+A restaurant can have up to 10 domains (`409 DOMAIN_LIMIT`). A domain registered for another restaurant gives `409 DOMAIN_TAKEN`, unless it has stayed unverified there for more than 72 hours, or it is unverified on a sandbox and you add it to a real restaurant; then you take it over and get `200` with a new TXT value. Domains work for sandboxes too.
+
+## Menu import
+
+Upload the restaurant's menu as a PDF or a photo, check the proposal, and import it as a new menu:
+
+1. `POST …/menu-imports` as `multipart/form-data` with the file in the field `file`: a PDF (up to 4 MB and 20 pages) or a JPEG, PNG or WebP image (up to 4 MB). HEIC is not supported. The response (`201`) is a draft with `proposal`: categories, products, sizes, prices in øre and suggested allergens, each with a `confidence` and the `reasons` a line is uncertain. Sending the same file as an open draft returns that draft (`200`). The call can take a couple of minutes.
+2. Check the proposal. A language model reads the menu. For a PDF with a text layer, every price and name is checked against the text. An image or a scanned PDF cannot be checked that way: `proposal.source.checkedAgainstText` is `false`, and the proposal has the warning `CHECK_AGAINST_MENU`. Check every price against the menu before you import.
+3. `POST …/menu-imports/{importId}/commit` creates a **new menu that is turned off**. Send `proposal` with your corrections, or leave it out to use the stored one. No existing menu is changed. Customers see the new menu only once the restaurant turns it on and makes it the default menu (or gives it a schedule).
+
+Drafts are deleted after 7 days. A second commit, also after a lost response, gives `409 MENU_IMPORT_CLOSED` with `details.menuId`, so a retry finds the menu. The file itself is never stored. Allergens are suggestions; the restaurant must confirm them.
+
+## Inviting the owner
+
+`POST …/owner-invite` with `{ "name": "…", "email": "…" }` emails the restaurant's owner an invitation. The owner creates their own login, signs the customer agreement and the data processing agreement, sets up online payment with SagaPay and sets the restaurant live. You cannot do those steps for the owner.
+
+- For real restaurants without an owner only, so it needs a live key. A sandbox gives `409 SANDBOX_NOT_SUPPORTED`, and a restaurant with an owner gives `409 OWNER_EXISTS`.
+- The invitation expires after 7 days. Calling again resends it, replaces the open invitation (also to a different email) and gives 7 new days. `Idempotency-Key` is not used.
+- The email cannot belong to a partner user or a member of the restaurant (`422 OWNER_EMAIL_NOT_ALLOWED`).
+- `502 INVITE_SEND_FAILED` means the invitation is saved but the email did not go out. Send the same call again shortly.
+- `DELETE …/owner-invite` revokes the open invitation. `owner.status` and `owner.inviteId` in `GET /partner/restaurants/{slug}` show where it stands.
+
+## Go-live approval
+
+A real restaurant needs LettBestilt's approval before it goes live for the first time. The owner signs the agreements. LettBestilt approves the restaurant before the owner sets it live.
+
+1. When the steps under **Get started** (*Kom i gang*) are done, `goLive.readyToRequest` in `GET /partner/restaurants/{slug}` is `true`. Before that, a request gives `422 GO_LIVE_NOT_READY` with the missing steps in `details.missing`.
+2. `POST …/go-live-review` sends the request. LettBestilt's checklist runs first (menu, opening hours, payment, agreements, company details, website, domain, API key, owner, allergens and more). Errors give `422 GO_LIVE_CHECKS_FAILED` with every check in `details.checks`, and nothing is sent. Warnings do not stop the request.
+3. LettBestilt reviews the restaurant. `goLive.state` becomes `approved` or `rejected`, with LettBestilt's comment in `goLive.comment` when it is rejected.
+4. The owner sets the restaurant live. An approval never does that by itself, and it is valid for 30 days.
+
+`DELETE …/go-live-review` withdraws a request that is still waiting. Real restaurants only: a sandbox gives `409 SANDBOX_NOT_SUPPORTED`.
+
 ## Rate limits
 
 | What | Limit |
@@ -138,9 +185,13 @@ Key ids are in `apiKeys` in `GET /partner/restaurants/{slug}`.
 | All partner endpoints | 120 calls per minute per partner key |
 | Create a restaurant | 10 per hour per partner key, and 20 per hour per partner. Replays do not count |
 | Delete or archive a restaurant | 10 per hour per partner key |
-| Rotate or revoke keys, create or delete webhooks | 30 per minute per partner |
+| Rotate or revoke keys, create or delete webhooks, add, remove or change domains, owner invitations, commit menu imports | 30 per minute per partner |
+| Owner invitations | 5 sent per hour per restaurant and 30 per partner; 20 attempts per hour per restaurant and 60 per partner |
+| Verify a domain | 30 per 10 minutes per restaurant |
+| Go-live requests | 15 per hour per restaurant and 30 per partner; withdrawing 10 per hour per restaurant |
+| Menu imports | 10 uploads per hour per restaurant and 60 per partner, 20 readings with the language model per 24 hours per restaurant; commit 10 per hour per restaurant |
 
-Over the limit you get `429 RATE_LIMITED` with `Retry-After`.
+Over the limit you get `429 RATE_LIMITED` with `Retry-After`. The limits for owner invitations, domain verification and go-live requests are shared with the partner portal, and the hourly limit on menu uploads with the restaurant dashboard.
 
 ## Responses and errors
 

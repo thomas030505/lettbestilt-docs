@@ -101,7 +101,7 @@ Slugs are public, so anyone can produce a `401` for a restaurant. The check ther
 | `403 INSUFFICIENT_SCOPE` | The key does not have the scope in `error.details.requiredScope` |
 | `403 FORBIDDEN` on `/api/v1/partner` | The call came from a browser (`Origin` header). Call the partner API from your server |
 | `404 RESTAURANT_NOT_FOUND` | The slug is wrong, or the real restaurant is not live yet. For the partner API: the slug does not match the restaurant key |
-| `400 INVALID_SUCCESS_URL` | The return URL is not on a verified domain. Ask LettBestilt to verify the host |
+| `400 INVALID_SUCCESS_URL` | The return URL is not on a verified domain. Add and verify the host on the restaurant's **Domains** tab in the partner portal |
 
 All codes are in [Errors](/errors).
 

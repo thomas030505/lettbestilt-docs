@@ -278,8 +278,9 @@ paths:
             `https://www.pizzaroma.no/order/{TOKEN}`. Must be `https` on
             lettbestilt.no, on a verified domain of the restaurant or its
             partner, or on a domain LettBestilt has approved; anything else fails
-            with `400 INVALID_SUCCESS_URL`. Domains cannot be registered through
-            the API: ask LettBestilt to verify a new host. If you leave it out,
+            with `400 INVALID_SUCCESS_URL`. Add and verify a new host on the
+            restaurant's Domains tab in the partner portal, or with
+            `POST /api/v1/partner/restaurants/{slug}/domains`. If you leave it out,
             the customer returns to `/order/{TOKEN}?payment=success` on the
             restaurant's domain. In a sandbox you can leave it out: the customer
             then returns to the test payment page, which shows that the order is
@@ -2366,7 +2367,10 @@ components:
         live:
           description: >-
             A real restaurant that has gone live and takes orders. A new real
-            restaurant is not live until its owner has signed and set it live.
+            restaurant is not live until its owner has signed the agreements,
+            LettBestilt has approved it (the partner asks for go-live approval
+            in the partner portal, or with `POST …/{slug}/go-live-review` once
+            live partner keys are available) and the owner has set it live.
             Always `false` for sandboxes; they accept test orders in `/api/v1`
             anyway.
         archived:
@@ -2472,44 +2476,10 @@ components:
           x-fern-type-name: ErrorBody
           properties:
             code:
-              description: A machine-readable error code.
-              enum:
-                - MISSING_SLUG
-                - MISSING_TOKEN
-                - INVALID_JSON
-                - INVALID_SUCCESS_URL
-                - INVALID_CANCEL_URL
-                - VALIDATION_FAILED
-                - RESTAURANT_NOT_FOUND
-                - ORDER_NOT_FOUND
-                - RATE_LIMITED
-                - BAD_REQUEST
-                - UNAUTHORIZED
-                - FORBIDDEN
-                - INSUFFICIENT_SCOPE
-                - KEY_EXPIRED
-                - POPUP_NOT_AVAILABLE
-                - PRICE_CHANGED
-                - PAYMENT_INCOMPLETE
-                - PAYMENT_PENDING
-                - PAYMENT_PROVIDER_INVALID
-                - FULFILLMENT_NOT_ALLOWED
-                - IDEMPOTENCY_CONFLICT
-                - DINE_IN_DISABLED
-                - PARTY_TOO_LARGE
-                - TOO_EARLY
-                - INTERNAL_ERROR
-                - PARTNER_AGREEMENT_REQUIRED
-                - IDEMPOTENCY_KEY_REQUIRED
-                - SLUG_TAKEN
-                - SANDBOX_LIMIT
-                - RETENTION
-                - RESTAURANT_ARCHIVED
-                - KEY_NOT_FOUND
-                - KEY_IN_USE
-                - WEBHOOK_NOT_FOUND
-                - WEBHOOK_LIMIT
-                - CHANGED
+              description: >-
+                A machine-readable error code. The list comes from the platform
+                spec, which a test keeps in step with the code. See the Errors
+                guide for what each code means.
             message:
               description: >-
                 A human-readable explanation. Often in Norwegian, and for

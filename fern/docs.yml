@@ -104,6 +104,9 @@ navigation:
           - page: From sandbox to live
             slug: sandbox-to-live
             path: ./pages/sandbox-to-live.mdx
+          - page: MCP server for AI tools
+            slug: mcp
+            path: ./pages/mcp.mdx
           - page: Rotating keys without downtime
             slug: rotating-keys
             path: ./pages/rotating-keys.mdx

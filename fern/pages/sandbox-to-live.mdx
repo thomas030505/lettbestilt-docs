@@ -55,20 +55,29 @@ In the restaurant's API section in the partner portal, **Check integration** (*S
 
 The real restaurant is a separate restaurant with its own slug. It is not the sandbox switched on: a sandbox is never live.
 
-1. Sign the partner agreement and the data processing agreement in the partner portal, under **Get started** (*Kom i gang*). Until you have, you cannot add real restaurants.
-2. Add the restaurant in the partner portal. Live partner keys are not available yet, so this cannot be done through the API.
-3. Ask LettBestilt to invite the owner. The owner signs the restaurant's own agreements, sets up online payment with SagaPay (with BankID) and sets the restaurant live. Partners cannot do these steps for the owner.
-4. Ask LettBestilt to verify every hostname the site runs on, both `example.no` and `www.example.no` if you use both. Domains cannot be registered through the API.
+1. The owner of your partner account signs the partner agreement and the data processing agreement in the partner portal, under **Get started** (*Kom i gang*). Until they are signed, you cannot add real restaurants. A partner account that registered itself must also be approved by LettBestilt first.
+2. Add the restaurant in the partner portal. Live partner keys are not available yet, so this cannot be done through the API yet.
+3. Invite the restaurant's owner with **Invite the owner** (*Inviter eieren*) on the restaurant in the partner portal (or `POST …/owner-invite` once live partner keys are available). The owner creates their own login, signs the customer agreement and the data processing agreement, and sets up online payment with SagaPay (with BankID). Partners cannot do these steps for the owner. The invitation is valid for 7 days, and you can send it again.
+4. Add and verify every hostname the site runs on, on the restaurant's **Domains** tab (*Domener*), both `example.no` and `www.example.no` if you use both. You add a TXT record at the DNS provider and verify it yourself. See [Authentication](/authentication#trusted-browser-origin).
+5. Set up the menu, opening hours and delivery like for any restaurant. The menu import reads a PDF or photo of the menu; see [Partner API](/partner-api#menu-import).
 
 Until the restaurant is live, `/api/v1` answers `404 RESTAURANT_NOT_FOUND` for it (except `GET /site-gate`).
 
 ### Create the live key and webhooks
 
-In the restaurant's API section in the partner portal, create a key. It is a live key (`lbs_live_…`). Give it only the scopes the site needs, or full access if you also want to manage the restaurant through the partner API. Then create the webhooks for the real restaurant, with the same events as in the sandbox. Each restaurant has its own webhooks and signing secrets.
+In the restaurant's API section in the partner portal, create a key. It is a live key (`lbs_live_…`). Give it only the scopes the site needs, or full access if you also want to manage the restaurant through the partner API. Then create the webhooks for the real restaurant, with the same events as in the sandbox. Each restaurant has its own webhooks and signing secrets. Webhooks carry customer data, so they can only be added once the owner has signed the agreements (`403 PARTNER_DATA_LOCKED` before that).
 
-### Switch the site
+### Ask LettBestilt for go-live approval
 
-Change the environment variables in production and deploy:
+The owner signs the agreements. LettBestilt approves the restaurant before the owner sets it live.
+
+When the steps under **Get started** are done, choose **Ask for go-live approval** (*Be om go-live-godkjenning*) on the restaurant in the partner portal (or `POST …/go-live-review` once live partner keys are available). LettBestilt's checklist runs first and shows what must be fixed: menu, opening hours, payment, agreements, company details, website, domain, API key, owner, allergens and more. Then LettBestilt reviews the restaurant and you get an email with the decision. If it is rejected, the comment says why; fix it and ask again. An approval is valid for 30 days.
+
+### Switch the site and go live
+
+When LettBestilt has approved the restaurant, the owner sets it live under **Get started**. An approval never sets the restaurant live by itself.
+
+Then change the environment variables in production and deploy:
 
 ```bash title="Production environment"
 LETTBESTILT_SLUG=pizzaroma
@@ -77,8 +86,6 @@ LETTBESTILT_WEBHOOK_SECRET=whsec_...
 ```
 
 Keep the sandbox for testing future changes. A test key never works against a live restaurant, and a live key never works against a sandbox, so the two cannot be mixed up.
-
-### Go live
 
 Work through the [go-live checklist](/go-live), then place one real order end to end with the restaurant.
 

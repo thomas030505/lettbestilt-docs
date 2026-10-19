@@ -11,9 +11,10 @@ Every endpoint except order tracking needs one of two kinds of authentication: a
 |---|---|---|---|
 | Restaurant key, test | `lbs_test_…` | One sandbox restaurant | `/api/v1` for that sandbox |
 | Restaurant key, live | `lbs_live_…` | One real restaurant | `/api/v1` for that restaurant |
-| Partner key, test | `lbp_test_…` | Your partner account | `/api/v1/partner` only |
+| Partner key, test | `lbp_test_…` | Your partner account | `/api/v1/partner` and the [MCP server](/mcp), sandboxes only |
+| Partner key, live | `lbp_live_…` | Your partner account | `/api/v1/partner` and the MCP server, real restaurants only. Not available yet |
 
-Live partner keys (`lbp_live_…`) are not available yet. Older restaurant keys that start with just `lbs_` keep working against the restaurant endpoints.
+A test key only ever reaches sandboxes, and a live key only real restaurants. Older restaurant keys that start with just `lbs_` keep working against the restaurant endpoints, but not in the partner API.
 
 ## API key (server to server)
 
@@ -88,7 +89,15 @@ An origin is trusted for a restaurant when it is:
 - the restaurant's LettBestilt subdomain, `https://{slug}.lettbestilt.no`
 - one of the restaurant's **verified domains**, for example `https://www.pizzaroma.no`
 
-Ask LettBestilt to verify every hostname your site runs on. `pizzaroma.no` and `www.pizzaroma.no` are two different origins, so verify both if you use both. Only `https` origins are accepted. Domains cannot be registered through the API.
+Verify every hostname your site runs on. `pizzaroma.no` and `www.pizzaroma.no` are two different origins, so verify both if you use both. Only `https` origins are accepted.
+
+You add and verify domains yourself, on the restaurant's **Domains** tab (*Domener*) in the partner portal or with the [partner API](/partner-api#domains):
+
+1. Add the hostname, for example `www.pizzaroma.no`. You get a TXT record named `_lettbestilt-verify.www.pizzaroma.no` with a value to copy.
+2. Add the TXT record at the domain's DNS provider.
+3. Choose **Verify** (*Verifiser*) in the portal, or call `POST …/domains/{domainId}/verify`. DNS changes can take a while to spread, so try again later if the record is not found yet.
+
+A restaurant can have up to 10 domains. A domain LettBestilt manages for the restaurant cannot be removed by a partner (`409 DOMAIN_MANAGED`).
 
 A verified domain also:
 
@@ -106,14 +115,23 @@ A verified domain also:
 
 ## Partner keys
 
-The partner key belongs to your partner account, not to a restaurant. Create it in the partner portal under **Settings → Partner key** (partner administrators only). It only works against `/api/v1/partner`:
+The partner key belongs to your partner account, not to a restaurant. Create it in the partner portal under **Settings → Partner key**. The owner, administrators and developers on your partner team can create test partner keys; live keys are for the owner and administrators only. A partner that registered itself can use its keys once LettBestilt has approved the account (`403 PARTNER_NOT_APPROVED` until then). The partner key only works against `/api/v1/partner` and the [MCP server](/mcp):
 
 ```http
 Authorization: Bearer lbp_test_...
 X-LettBestilt-Restaurant-Key: lbs_test_...
 ```
 
-The partner key alone can list and create restaurants. Calls about one existing restaurant also need that restaurant's key in `X-LettBestilt-Restaurant-Key`. The partner API rejects any request with an `Origin` header (`403 FORBIDDEN`), so the partner key must only ever be used from a server. See [Partner API](/partner-api).
+The two keys work together:
+
+| What you send | What you can do |
+|---|---|
+| Partner key alone | List your restaurants and create new ones |
+| Partner key + restaurant key | Everything about one restaurant: details, deleting or archiving it, keys, webhooks, domains, menu imports, inviting the owner and asking LettBestilt for go-live approval |
+
+The restaurant key goes in `X-LettBestilt-Restaurant-Key`. It must have full access, belong to one of your restaurants, and be in the same environment as the partner key. A leaked partner key alone can therefore not read, change or delete an existing restaurant.
+
+The partner API rejects any request with an `Origin` header (`403 FORBIDDEN`), so the partner key must only ever be used from a server. See [Partner API](/partner-api).
 
 ## When authentication fails
 
@@ -122,5 +140,8 @@ The partner key alone can list and create restaurants. Calls about one existing 
 | `401 UNAUTHORIZED` | Missing, wrong or revoked key, a partner key on a restaurant endpoint, or an origin that is not trusted for this slug. `error.message` says which |
 | `401 KEY_EXPIRED` | The key is valid but past its expiry date |
 | `403 INSUFFICIENT_SCOPE` | The key does not have the scope in `error.details.requiredScope` |
+| `403 FORBIDDEN` | Partner API: the request has an `Origin` header |
+| `403 PARTNER_NOT_APPROVED` | Partner API: LettBestilt has not approved your partner account yet |
+| `403 PARTNER_AGREEMENT_REQUIRED` | Partner API with a live partner key: the partner agreements are not signed |
 
 See [Errors](/errors) for the envelope, and [Debugging with request IDs](/debugging) to find the failed call in the API log.

@@ -35,9 +35,14 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `FORBIDDEN` | 403 | Partner API: the request has an `Origin` header. Call it from your server |
 | `INSUFFICIENT_SCOPE` | 403 | The key does not have the scope this endpoint needs. `details.requiredScope` names it (`*` in the partner API, which needs a restaurant key with full access) |
 | `PARTNER_AGREEMENT_REQUIRED` | 403 | Partner API with a live partner key: the partner agreements are not signed. Live partner keys are not available yet |
+| `PARTNER_NOT_APPROVED` | 403 | Partner API: your partner account registered itself and LettBestilt has not approved it yet. You get an email when it is approved |
+| `PARTNER_DATA_LOCKED` | 403 | Partner API: the real restaurant's owner has not signed the customer agreement and the data processing agreement yet. Webhooks carry customer data, so they can only be added after that |
 | `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug. In the partner API also when the slug belongs to another partner or does not match the restaurant key |
 | `KEY_NOT_FOUND` | 404 | Partner API: the key does not belong to the restaurant, or is already revoked |
 | `WEBHOOK_NOT_FOUND` | 404 | Partner API: the webhook does not belong to the restaurant |
+| `DOMAIN_NOT_FOUND` | 404 | Partner API: the domain does not belong to the restaurant |
+| `OWNER_INVITE_NOT_FOUND` | 404 | Partner API: the restaurant has no open owner invitation to revoke |
+| `MENU_IMPORT_NOT_FOUND` | 404 | Partner API: the menu import does not exist or belongs to another restaurant |
 | `ORDER_NOT_FOUND` | 404 | No order has this token |
 | `POPUP_NOT_AVAILABLE` | 404 | Newsletter signup is turned off for the restaurant |
 | `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has `expectedTotal`, `actualTotal` and `currency` |
@@ -46,16 +51,46 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `IDEMPOTENCY_CONFLICT` | 409 | The `Idempotency-Key` was already used by the other endpoint, or (reservations and partner restaurant creation) with a different body |
 | `SLUG_TAKEN` | 409 | Partner API: the slug is already in use |
 | `SANDBOX_LIMIT` | 409 | Partner API: you already have 20 sandboxes. Delete one first |
+| `SANDBOX_NOT_SUPPORTED` | 409 | Partner API: the call is for real restaurants only, such as inviting the owner or asking for go-live approval |
 | `RETENTION` | 409 | Partner API: the sandbox has accounting records that must be kept and cannot be deleted. `details.blockers` says why |
-| `RESTAURANT_ARCHIVED` | 409 | Partner API: the restaurant is archived, so keys cannot be rotated and webhooks cannot be added |
+| `RESTAURANT_ARCHIVED` | 409 | Partner API: the restaurant is archived, so you can read it and remove access, but not add or change anything |
 | `KEY_IN_USE` | 409 | Partner API: you tried to revoke the key you are calling with immediately. Rotate it instead |
 | `WEBHOOK_LIMIT` | 409 | Partner API: the restaurant already has 10 webhooks |
+| `DOMAIN_TAKEN` | 409 | Partner API: the domain is already registered for this or another restaurant |
+| `DOMAIN_LIMIT` | 409 | Partner API: the restaurant already has 10 domains |
+| `DOMAIN_MANAGED` | 409 | Partner API: LettBestilt manages this domain, so it cannot be removed through the API |
+| `OWNER_EXISTS` | 409 | Partner API: the restaurant already has an owner |
+| `MENU_IMPORT_CLOSED` | 409 | Partner API: the menu import is already imported, discarded or expired. `details` has `status` and, once imported, `menuId` |
+| `GO_LIVE_NOT_REQUIRED` | 409 | Partner API: the restaurant does not need go-live approval, because it has been live before or is a demo or sandbox |
+| `GO_LIVE_ALREADY_REQUESTED` | 409 | Partner API: a go-live request for the restaurant is already waiting for LettBestilt |
+| `GO_LIVE_ALREADY_APPROVED` | 409 | Partner API: LettBestilt has already approved the restaurant, and the approval is still valid |
+| `GO_LIVE_NOTHING_TO_WITHDRAW` | 409 | Partner API: there is no waiting go-live request to withdraw |
 | `CHANGED` | 409 | Partner API: the same thing was changed at the same time. Nothing was changed by your call; try again |
+| `PDF_TOO_LARGE` | 413 | Partner API, menu import: the file (PDF or image) is larger than 4 MB |
 | `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
 | `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |
 | `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY` | 422 | Reservation rejections. See [Table reservations](/reservations) |
+| `NO_TABLE`, `INVALID_PARTY_SIZE` | | Reserved for table reservations. `POST /reservations` does not return them today: the restaurant assigns a table when it approves the request |
+| `OWNER_EMAIL_NOT_ALLOWED` | 422 | Partner API: the owner's email belongs to a partner user, an open invitation to a partner team or a member of the restaurant |
+| `DOMAIN_NOT_VERIFIED` | 422 | Partner API: the TXT record was not found, or you tried to use a domain that is not verified yet in tracking links. The message names the record |
+| `GO_LIVE_NOT_READY` | 422 | Partner API: the steps under **Get started** (*Kom i gang*) are not done yet. `details.missing` lists them |
+| `GO_LIVE_CHECKS_FAILED` | 422 | Partner API: LettBestilt's go-live checklist found errors. `details.checks` lists every check; nothing was sent |
+| `FILE_UNSUPPORTED` | 422 | Partner API, menu import: the file is not a PDF, JPEG, PNG or WebP. The type is read from the content, not the file name |
+| `IMAGE_HEIC` | 422 | Partner API, menu import: HEIC and HEIF images are not supported. Send a JPEG |
+| `IMAGE_INVALID` | 422 | Partner API, menu import: the image cannot be read |
+| `IMAGE_DIMENSIONS` | 422 | Partner API, menu import: the image is under 200 or over 8000 pixels on a side |
+| `PDF_INVALID` | 422 | Partner API, menu import: the file is not a PDF that can be read |
+| `PDF_PASSWORD` | 422 | Partner API, menu import: the PDF is password protected |
+| `PDF_TOO_MANY_PAGES` | 422 | Partner API, menu import: the PDF has more than 20 pages |
+| `PDF_NO_TEXT` | 422 | Partner API, menu import: the PDF is scanned and image reading is not available right now |
+| `PDF_PARSE_TIMEOUT` | 422 | Partner API, menu import: reading the menu took too long. Try again, or split the menu into smaller files |
+| `MENU_IMPORT_TOO_BIG` | 422 | Partner API, menu import: the menu is too large to read in one go. Split it into smaller files |
+| `MENU_IMPORT_EMPTY` | 422 | Partner API, menu import: no dishes with prices were found in the file |
 | `RATE_LIMITED` | 429 | Too many requests. See `Retry-After` |
+| `MENU_IMPORT_AI_LIMIT` | 429 | Partner API, menu import: the cap on readings with the language model is reached (20 per restaurant per 24 hours, plus an overall cap per hour). Only images and scanned PDFs get this code; a PDF with text is read by the fallback parser instead. Try again later |
 | `PAYMENT_PROVIDER_INVALID` | 502 | The payment provider returned an unusable payment link |
+| `INVITE_SEND_FAILED` | 502 | Partner API: the owner invitation is saved, but the email did not go out. Send the same call again shortly |
+| `MENU_IMPORT_UNAVAILABLE` | 503 | Partner API, menu import: the language model did not answer, and an image or scanned PDF has no fallback. Try again shortly |
 | `INTERNAL_ERROR` | 5xx | Something failed on our side or at a provider. `503` on order creation means the payment provider did not answer |
 
 One exception to the envelope: `409 ONLINE_BOOKING_CLOSED` from `POST /reservations` uses a flat shape, `{ "error": "…", "code": "ONLINE_BOOKING_CLOSED" }`.
@@ -78,7 +113,12 @@ Limits are counted per client IP, and for most endpoints per restaurant as well:
 | `/partner/…` (all endpoints) | 120 per minute per partner key |
 | `POST /partner/restaurants` | 10 per hour per partner key, and 20 per hour per partner |
 | `DELETE /partner/restaurants/{slug}` | 10 per hour per partner key |
-| Rotating and revoking keys, creating and deleting webhooks in the partner API | 30 per minute per partner |
+| Rotating and revoking keys, creating and deleting webhooks, adding, removing and changing domains, sending and revoking owner invitations, and committing menu imports in the partner API | 30 per minute per partner |
+| `POST /partner/restaurants/{slug}/owner-invite` | 5 sent invitations per hour per restaurant and 30 per partner, and 20 attempts per hour per restaurant and 60 per partner |
+| `POST …/domains/{domainId}/verify` | 30 per 10 minutes per restaurant |
+| `POST …/go-live-review` | 15 per hour per restaurant and 30 per partner. Withdrawing: 10 per hour per restaurant |
+| `POST …/menu-imports` | 10 per hour per restaurant and 60 per partner. Readings with the language model: 20 per 24 hours per restaurant |
+| `POST …/menu-imports/{importId}/commit` | 10 per hour per restaurant |
 
 Rate-limited responses include these headers:
 
@@ -119,4 +159,7 @@ The partner API's `POST /partner/restaurants` **requires** an `Idempotency-Key`.
 | `503` on `POST /orders` | Only as a new attempt with a new key; the first order has no payment link |
 | `500` | Yes, with backoff. On `POST /orders` and `POST /reservations`, reuse the same key. Contact LettBestilt if it persists |
 | `409 CHANGED` (partner API) | Yes, once the conflicting change is done |
+| `502 INVITE_SEND_FAILED` (partner API) | Yes, shortly, with the same call. The invitation is already saved |
+| `503 MENU_IMPORT_UNAVAILABLE` (partner API) | Yes, after a little while |
+| `429 MENU_IMPORT_AI_LIMIT` (partner API) | Yes, later; the limit is per 24 hours. A PDF with text works in the meantime, because the fallback parser reads it |
 | `400`, `401`, `403`, `404`, `422`, other `409` | No. Change the request first. Look up the request ID in the API log if the cause is unclear |
