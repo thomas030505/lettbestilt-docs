@@ -1403,6 +1403,359 @@ paths:
         "429":
           description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
 
+  /api/v1/partner/restaurants/{slug}/owner-invite:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    post:
+      operationId: inviteRestaurantOwner
+      tags: [Partner]
+      summary: Invite the restaurant's owner
+      description: |-
+        **Partner key + restaurant key.** Emails the owner an invitation. The owner creates their own login, signs the customer agreement and the data processing agreement, sets up online payment and sets the restaurant live themselves once LettBestilt has approved it (see [go-live approval](/partner-api#go-live-approval)). You cannot do those steps for the owner.
+
+        Real restaurants without an owner only, so it needs a live partner key (available once LettBestilt Partner is open). A sandbox gives `409 SANDBOX_NOT_SUPPORTED`. The invitation expires after 7 days. There is no `Idempotency-Key`: calling again is "send again" and replaces the open invitation (also to another email address) with 7 new days. If the owner already has a LettBestilt account they get a notice with a link instead of a sign-up link, and must accept the invitation themselves (`owner.status` stays `INVITED` until then); the response is the same in both cases.
+
+        Limits: 5 sent invitations per hour per restaurant and 30 per partner, plus 20 attempts per hour per restaurant and 60 per partner (rejected ones included; shared with the partner portal). A rejected email (409/422) does not count as sent.
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Kari Nordmann
+              email: kari@pizzaroma.no
+      responses:
+        "201":
+          description: The invitation is sent (or, for an existing account, the notice). `inviteId` is what `DELETE` takes as `inviteId`.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "409":
+          description: "`OWNER_EXISTS`: the restaurant already has an owner. `SANDBOX_NOT_SUPPORTED`: sandboxes have no owner. `RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: changed at the same time; try again."
+        "422":
+          description: "`VALIDATION_FAILED`: `name` or `email` is missing or invalid (`error.details.issues`). `OWNER_EMAIL_NOT_ALLOWED`: the email belongs to a partner user, an open invitation to a partner team or a member of the restaurant."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or the invitation limits above."
+        "502":
+          description: "`INVITE_SEND_FAILED`: the invitation is stored and valid for 7 days, but the email did not go out. Send it again in a while (same call)."
+    delete:
+      operationId: revokeRestaurantOwnerInvite
+      tags: [Partner]
+      summary: Revoke the owner invitation
+      description: "**Partner key + restaurant key.** Deletes the open owner invitation (an expired one too), so it can no longer be accepted. The optional body `{ \"inviteId\" }` makes sure it is the invitation you saw. Allowed for an archived restaurant too."
+      requestBody:
+        content:
+          application/json:
+            example:
+              inviteId: inv_01j9x2
+      responses:
+        "200":
+          description: Revoked.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `OWNER_INVITE_NOT_FOUND` when there is no open owner invitation."
+        "409":
+          description: "`SANDBOX_NOT_SUPPORTED`: sandboxes have no owner. `CHANGED`: the invitation was accepted or replaced in the meantime."
+        "422":
+          description: "`VALIDATION_FAILED`: `inviteId` is not a string."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 10 revocations per hour for the restaurant."
+
+  /api/v1/partner/restaurants/{slug}/go-live-review:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    post:
+      operationId: requestGoLiveReview
+      tags: [Partner]
+      summary: Ask LettBestilt for go-live approval
+      description: |-
+        **Partner key + restaurant key.** Asks LettBestilt to check a real restaurant before it goes live for the first time: menu, opening hours, payment, agreements, company details, website, domain, API key, owner and allergens. The onboarding steps must be ready (`goLive.readyToRequest` in `GET …/{slug}`), otherwise `422 GO_LIVE_NOT_READY` with `details.missing`. The checklist runs first: an error gives `422 GO_LIVE_CHECKS_FAILED` with `details.checks` and nothing is stored; warnings do not block. An approval is valid for 30 days and never sets the restaurant live: the owner does that.
+
+        Real restaurants only, so it needs a live partner key (available once LettBestilt Partner is open). A sandbox gives `409 SANDBOX_NOT_SUPPORTED`. At most 15 requests per hour per restaurant and 30 per partner (shared with the partner portal).
+      responses:
+        "201":
+          description: The request is sent to LettBestilt, with the checklist as it ran.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "409":
+          description: "`SANDBOX_NOT_SUPPORTED`, `RESTAURANT_ARCHIVED`, `GO_LIVE_NOT_REQUIRED` (already live, demo or sandbox), `GO_LIVE_ALREADY_REQUESTED` (a request is waiting) or `GO_LIVE_ALREADY_APPROVED` (an approval is still valid)."
+        "422":
+          description: "`GO_LIVE_NOT_READY`: `details.missing` lists the onboarding steps that are not done. `GO_LIVE_CHECKS_FAILED`: `details.checks` is the checklist with the failing items."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 15 requests per hour for the restaurant or 30 for the partner."
+    delete:
+      operationId: withdrawGoLiveReview
+      tags: [Partner]
+      summary: Withdraw the go-live request
+      description: "**Partner key + restaurant key.** Withdraws a request that is waiting. Allowed for an archived restaurant too. At most 10 per hour per restaurant (shared with the partner portal)."
+      responses:
+        "200":
+          description: Withdrawn.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "409":
+          description: "`SANDBOX_NOT_SUPPORTED`, or `GO_LIVE_NOTHING_TO_WITHDRAW` when no request is waiting."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 10 withdrawals per hour for the restaurant."
+
+  /api/v1/partner/restaurants/{slug}/domains:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    get:
+      operationId: listRestaurantDomains
+      tags: [Partner]
+      summary: List the restaurant's domains
+      description: "**Partner key + restaurant key.** All domains, including those waiting for verification (with the TXT record in `verification`). A restaurant has at most 10 domains, so `nextCursor` is always `null`."
+      responses:
+        "200":
+          description: The domains.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+    post:
+      operationId: addRestaurantDomain
+      tags: [Partner]
+      summary: Add a domain
+      description: |-
+        **Partner key + restaurant key.** The domain is normalised (lower case, without `https://` and trailing slash). Add the TXT record from `verification` at the DNS provider, then verify with `POST …/domains/{domainId}/verify`. A verified domain lets the restaurant's site call `/api/v1` from the browser and use the domain in `successUrl` and `cancelUrl`.
+
+        `201` for a new domain. `200` when you take over a domain that is unverified at another restaurant (new TXT value): after 72 hours, or right away when it is unverified at a sandbox and you add it to a real restaurant. At most 10 domains per restaurant. Not allowed for an archived restaurant. Domains work for sandboxes too.
+      requestBody:
+        content:
+          application/json:
+            example:
+              domain: www.pizzaroma.no
+      responses:
+        "200":
+          description: Taken over from another restaurant, with a new TXT value to add.
+        "201":
+          description: Added. Verify it with the TXT record in `verification`.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "409":
+          description: "`DOMAIN_TAKEN`: registered for this or another restaurant. `DOMAIN_LIMIT`: the restaurant already has 10 domains. `RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: changed at the same time; try again."
+        "422":
+          description: "`VALIDATION_FAILED`: `domain` is missing, invalid or reserved, such as `lettbestilt.no` (`error.details.issues`, with `path: \"domain\"`)."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 changes per minute for the partner."
+
+  /api/v1/partner/restaurants/{slug}/domains/{domainId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: domainId
+        in: path
+        description: The domain's `id`.
+    delete:
+      operationId: deleteRestaurantDomain
+      tags: [Partner]
+      summary: Remove a domain
+      description: "**Partner key + restaurant key.** The restaurant's site is no longer accepted from the domain. Allowed for an archived restaurant too."
+      responses:
+        "200":
+          description: Removed.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `DOMAIN_NOT_FOUND` when the domain does not belong to the restaurant."
+        "409":
+          description: "`DOMAIN_MANAGED`: the domain is managed by LettBestilt. `CHANGED`: changed at the same time; try again."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 changes per minute for the partner."
+    patch:
+      operationId: setRestaurantPrimaryDomain
+      tags: [Partner]
+      summary: Use the domain in tracking links
+      description: "**Partner key + restaurant key.** With `{ \"primary\": true }` the domain becomes the one LettBestilt's tracking links in emails and on receipts go to (the same as \"Use in tracking links\" in the partner portal). Verified domains only. The previous primary domain loses the mark in the same operation. If nothing changes you get `200` without a change. Not allowed for an archived restaurant."
+      requestBody:
+        content:
+          application/json:
+            example:
+              primary: true
+      responses:
+        "200":
+          description: The domain as it is now.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `DOMAIN_NOT_FOUND` when the domain does not belong to the restaurant."
+        "409":
+          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: changed at the same time; try again."
+        "422":
+          description: "`VALIDATION_FAILED`: the body must be exactly `{ \"primary\": true }`. `DOMAIN_NOT_VERIFIED`: the domain is not verified yet."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 changes per minute for the partner."
+
+  /api/v1/partner/restaurants/{slug}/domains/{domainId}/verify:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: domainId
+        in: path
+        description: The domain's `id`.
+    post:
+      operationId: verifyRestaurantDomain
+      tags: [Partner]
+      summary: Verify a domain
+      description: "**Partner key + restaurant key.** Looks up the TXT record and verifies the domain. Safe to repeat: an already verified domain gives `200`. At most 30 attempts per 10 minutes per restaurant (shared with the partner portal). DNS changes can take a while to show up. Not allowed for an archived restaurant."
+      responses:
+        "200":
+          description: Verified.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `DOMAIN_NOT_FOUND` when the domain does not belong to the restaurant."
+        "409":
+          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: the domain was changed or taken over in the meantime."
+        "422":
+          description: "`DOMAIN_NOT_VERIFIED`: the TXT record was not found. The message says the name and value the record must have."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 verification attempts per 10 minutes for the restaurant."
+
+  /api/v1/partner/restaurants/{slug}/menu-imports:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    post:
+      operationId: createMenuImport
+      tags: [Partner]
+      summary: Upload a menu (PDF or image) and get a proposal
+      description: |-
+        **Partner key + restaurant key.** `multipart/form-data` with the menu in the field `file`: a PDF (up to 4 MB and 20 pages) or a JPEG, PNG or WebP image (up to 4 MB, 200 to 8000 pixels per side; HEIC is not supported). The type is read from the file's content, not from `Content-Type` or the file name. The file is interpreted during the request and never stored; only the proposal is stored, as a draft that is deleted after 7 days. Sending the same file as an open draft returns that draft (`200`) without a new interpretation.
+
+        A language model reads the menu. For a PDF with a text layer every price and name is checked against the text, and if the model is unavailable the deterministic parser is used (`proposal.source`). An image or a scanned PDF cannot be checked against text and gets the warning `CHECK_AGAINST_MENU`. The call can take a couple of minutes. Committing always creates a new menu that is turned off, so nothing is overwritten. Works for sandboxes and real restaurants. Not allowed for an archived restaurant.
+
+        Limits: 10 interpretations per hour per restaurant (shared with the restaurant dashboard), 60 per hour per partner, and 20 model interpretations per day per restaurant.
+      responses:
+        "200":
+          description: The same file as an open draft. That draft, without a new interpretation.
+        "201":
+          description: The draft with the proposal.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "409":
+          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived."
+        "413":
+          description: "`PDF_TOO_LARGE`: the file (PDF or image) is larger than 4 MB."
+        "422":
+          description: "`VALIDATION_FAILED`: the field `file` is missing. `FILE_UNSUPPORTED`: not a PDF, JPEG, PNG or WebP. `IMAGE_HEIC`: HEIC/HEIF is not supported; send a JPEG. `IMAGE_INVALID`: the image cannot be read. `IMAGE_DIMENSIONS`: a side is under 200 or over 8000 pixels. `PDF_INVALID`, `PDF_PASSWORD`, `PDF_TOO_MANY_PAGES` (over 20 pages), `PDF_NO_TEXT` (scanned PDF while image interpretation is unavailable), `PDF_PARSE_TIMEOUT`, `MENU_IMPORT_TOO_BIG` (too much to read at once) or `MENU_IMPORT_EMPTY` (no dishes with a price)."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, 10 interpretations per hour for the restaurant or 60 for the partner. `MENU_IMPORT_AI_LIMIT`: more than 20 model interpretations per day for the restaurant; a PDF with text then uses the deterministic parser instead."
+        "503":
+          description: "`MENU_IMPORT_UNAVAILABLE`: the language model did not answer, and an image or a scanned PDF has no fallback. Try again in a while."
+
+  /api/v1/partner/restaurants/{slug}/menu-imports/{importId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: importId
+        in: path
+        description: The import's `id`.
+    get:
+      operationId: getMenuImport
+      tags: [Partner]
+      summary: Get a menu import
+      description: "**Partner key + restaurant key.** The draft with the proposal and status, including changes saved from the preview in the restaurant dashboard. A draft past `expiresAt` has status `EXPIRED`. Imports from before the restaurant came to the partner give `404`."
+      responses:
+        "200":
+          description: The menu import.
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `MENU_IMPORT_NOT_FOUND` when the import does not exist or belongs to another restaurant."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+
+  /api/v1/partner/restaurants/{slug}/menu-imports/{importId}/commit:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: importId
+        in: path
+        description: The import's `id`.
+    post:
+      operationId: commitMenuImport
+      tags: [Partner]
+      summary: Import the proposal as a new menu
+      description: |-
+        **Partner key + restaurant key.** Creates a **new** menu that is turned off (`isActive: false`) and is not the default menu, with categories, products, sizes and allergens in one transaction. No existing menu is overwritten or changed. Customers do not see it until the restaurant turns it on and makes it the default menu (or gives it a schedule); turning it on is not enough while another menu is the default.
+
+        Without `proposal` the stored proposal is used (with changes made in the dashboard). The name is "Importert DD.MM.YYYY" (Oslo) when `menuName` is left out. A second commit, also after a lost response, gives `409 MENU_IMPORT_CLOSED` with `details.menuId`, so a retry finds the menu. Imports from before the restaurant came to the partner give `404`. At most 10 per hour per restaurant and 30 changes per minute per partner.
+      requestBody:
+        content:
+          application/json:
+            example:
+              menuName: Hovedmeny
+      responses:
+        "201":
+          description: The menu is created and turned off.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401":
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403":
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `MENU_IMPORT_NOT_FOUND` when the import does not exist or belongs to another restaurant."
+        "409":
+          description: "`MENU_IMPORT_CLOSED`: already imported, discarded or expired (`details: { status, menuId }`). `CHANGED`: without `proposal`, the proposal was changed in the dashboard between reading and importing; nothing is imported, try again. `RESTAURANT_ARCHIVED`: the restaurant is archived."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: a missing name or price, fields that are too long, unknown allergen codes or too many products."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, 10 commits per hour for the restaurant or 30 changes per minute for the partner."
+
 # -----------------------------------------------------------------------------
 # Webhooks (OpenAPI 3.1). Payloads verified against the platform's
 # dispatchWebhook() call sites.

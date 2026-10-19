@@ -56,7 +56,7 @@ In the restaurant's API section in the partner portal, **Check integration** (*S
 The real restaurant is a separate restaurant with its own slug. It is not the sandbox switched on: a sandbox is never live.
 
 1. The owner of your partner account signs the partner agreement and the data processing agreement in the partner portal, under **Get started** (*Kom i gang*). Until they are signed, you cannot add real restaurants. A partner account that registered itself must also be approved by LettBestilt first.
-2. Add the restaurant in the partner portal. Live partner keys are not available yet, so this cannot be done through the API yet.
+2. Add the restaurant in the partner portal, or with `POST /api/v1/partner/restaurants` and a live partner key once LettBestilt Partner is open.
 3. Invite the restaurant's owner with **Invite the owner** (*Inviter eieren*) on the restaurant in the partner portal (or `POST …/owner-invite` once live partner keys are available). The owner creates their own login, signs the customer agreement and the data processing agreement, and sets up online payment with SagaPay (with BankID). Partners cannot do these steps for the owner. The invitation is valid for 7 days, and you can send it again.
 4. Add and verify every hostname the site runs on, on the restaurant's **Domains** tab (*Domener*), both `example.no` and `www.example.no` if you use both. You add a TXT record at the DNS provider and verify it yourself. See [Authentication](/authentication#trusted-browser-origin).
 5. Set up the menu, opening hours and delivery like for any restaurant. The menu import reads a PDF or photo of the menu; see [Partner API](/partner-api#menu-import).

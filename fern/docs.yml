@@ -174,6 +174,18 @@ navigation:
               - GET /api/v1/partner/restaurants/{slug}/webhooks
               - POST /api/v1/partner/restaurants/{slug}/webhooks
               - DELETE /api/v1/partner/restaurants/{slug}/webhooks/{webhookId}
+              - POST /api/v1/partner/restaurants/{slug}/owner-invite
+              - DELETE /api/v1/partner/restaurants/{slug}/owner-invite
+              - POST /api/v1/partner/restaurants/{slug}/go-live-review
+              - DELETE /api/v1/partner/restaurants/{slug}/go-live-review
+              - GET /api/v1/partner/restaurants/{slug}/domains
+              - POST /api/v1/partner/restaurants/{slug}/domains
+              - DELETE /api/v1/partner/restaurants/{slug}/domains/{domainId}
+              - PATCH /api/v1/partner/restaurants/{slug}/domains/{domainId}
+              - POST /api/v1/partner/restaurants/{slug}/domains/{domainId}/verify
+              - POST /api/v1/partner/restaurants/{slug}/menu-imports
+              - GET /api/v1/partner/restaurants/{slug}/menu-imports/{importId}
+              - POST /api/v1/partner/restaurants/{slug}/menu-imports/{importId}/commit
           - section: Webhooks
             referenced-packages:
               - webhooks

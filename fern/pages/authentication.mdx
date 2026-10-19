@@ -12,7 +12,7 @@ Every endpoint except order tracking needs one of two kinds of authentication: a
 | Restaurant key, test | `lbs_test_…` | One sandbox restaurant | `/api/v1` for that sandbox |
 | Restaurant key, live | `lbs_live_…` | One real restaurant | `/api/v1` for that restaurant |
 | Partner key, test | `lbp_test_…` | Your partner account | `/api/v1/partner` and [LettBestilt MCP](/mcp), sandboxes only |
-| Partner key, live | `lbp_live_…` | Your partner account | `/api/v1/partner` and LettBestilt MCP, real restaurants only. Not available yet |
+| Partner key, live | `lbp_live_…` | Your partner account | `/api/v1/partner` and LettBestilt MCP, real restaurants only. Available once LettBestilt Partner is open |
 
 A test key only ever reaches sandboxes, and a live key only real restaurants. Older restaurant keys that start with just `lbs_` keep working against the restaurant endpoints, but not in the partner API.
 

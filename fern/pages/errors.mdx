@@ -34,7 +34,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `KEY_EXPIRED` | 401 | The key is valid but past its expiry date. Rotate to a new key |
 | `FORBIDDEN` | 403 | Partner API: the request has an `Origin` header. Call it from your server |
 | `INSUFFICIENT_SCOPE` | 403 | The key does not have the scope this endpoint needs. `details.requiredScope` names it (`*` in the partner API, which needs a restaurant key with full access) |
-| `PARTNER_AGREEMENT_REQUIRED` | 403 | Partner API with a live partner key: the partner agreements are not signed. Live partner keys are not available yet |
+| `PARTNER_AGREEMENT_REQUIRED` | 403 | Partner API with a live partner key: the partner agreements are not signed |
 | `PARTNER_NOT_APPROVED` | 403 | Partner API: your partner account registered itself and LettBestilt has not approved it yet. You get an email when it is approved |
 | `PARTNER_DATA_LOCKED` | 403 | Partner API: the real restaurant's owner has not signed the customer agreement and the data processing agreement yet. Webhooks carry customer data, so they can only be added after that |
 | `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug. In the partner API also when the slug belongs to another partner or does not match the restaurant key |
