@@ -94,6 +94,8 @@ if (res.status === 201) {
 
 The `201` response contains the new restaurant key in plain text, **once**, in `restaurantKey.key`. Store it before you do anything else: every call about this restaurant needs it, and LettBestilt cannot show it again.
 
+`orgNumber` is optional. When you send it, it must be a valid Norwegian organisation number: 9 digits with a correct check digit (mod 11). Spaces are fine. An invalid number gives `422 VALIDATION_FAILED` with an issue in `error.details.issues` whose `path` is `"orgNumber"`, and nothing is created.
+
 ### Retries and replays
 
 The `Idempotency-Key` is remembered per partner for 30 days.
