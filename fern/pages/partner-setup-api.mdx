@@ -1,0 +1,321 @@
+---
+title: Set up a restaurant through the API
+subtitle: Settings, opening hours, delivery and the menu, from an empty sandbox to a go-live request
+---
+
+{/*
+  Kilde i platform-repoet (docs/fern/partner-setup-api.mdx, trinn 4 A6). Kopieres til
+  lettbestilt-docs/fern/pages/partner-setup-api.mdx under seksjonen Partners, med slug
+  `partner-setup-api`. Se docs/fern/README-trinn4.md.
+  A5 (kategorier, produkter og tilleggsgrupper) står under «Edit the menu piece by piece».
+*/}
+
+The [LettBestilt Partner API](/partner-api) creates restaurants and connects them to a website. The endpoints on this page set up the restaurant itself: its profile and brand, opening hours, delivery zones and menu. With them, your own code or an AI tool through [LettBestilt MCP](/mcp) can take a restaurant from an empty sandbox to a go-live request without opening the dashboard.
+
+They do exactly what the restaurant dashboard does for the same fields, with the same rules, because both call the same code. A partner can change what a developer on the restaurant's partner team can change in the dashboard, and nothing more: payment, customers, the team, printers and accounting stay with the restaurant.
+
+<Note>
+Test partner keys (`lbp_test_…`) reach your sandboxes. Live partner keys (`lbp_live_…`) reach your real restaurants once LettBestilt Partner is open. Everything below works the same in both environments.
+</Note>
+
+## What you can set up
+
+Every call uses both keys, like everything else about one restaurant in the partner API:
+
+```http
+Authorization: Bearer lbp_test_...
+X-LettBestilt-Restaurant-Key: lbs_test_...
+```
+
+| Area | Endpoints |
+|---|---|
+| Settings | `GET`, `PATCH …/{slug}/settings` |
+| Opening hours | `GET`, `PUT …/{slug}/hours` |
+| Exceptions to the hours | `POST …/{slug}/hours/overrides`, `PATCH`, `DELETE …/{slug}/hours/overrides/{overrideId}` |
+| Delivery zones | `GET`, `POST …/{slug}/delivery-zones`, `PATCH`, `DELETE …/{slug}/delivery-zones/{zoneId}` |
+| Menus | `GET`, `POST …/{slug}/menus`, `GET`, `PATCH`, `DELETE …/{slug}/menus/{menuId}`, `PUT …/{slug}/menus/{menuId}/schedules` |
+| Categories | `POST …/{slug}/menus/{menuId}/categories`, `PATCH`, `DELETE …/{slug}/categories/{categoryId}` |
+| Products | `POST …/{slug}/categories/{categoryId}/products`, `POST …/{slug}/products/batch`, `PATCH`, `DELETE …/{slug}/products/{productId}` |
+| Addon groups | `GET`, `POST …/{slug}/addon-groups`, `PATCH`, `DELETE …/{slug}/addon-groups/{groupId}` |
+
+`…` is `https://www.lettbestilt.no/api/v1/partner/restaurants`. The examples below use these variables:
+
+```bash
+API="https://www.lettbestilt.no/api/v1/partner/restaurants"
+SLUG="pizzaroma-test"
+AUTH=(-H "Authorization: Bearer $LETTBESTILT_PARTNER_KEY" -H "X-LettBestilt-Restaurant-Key: $LETTBESTILT_RESTAURANT_KEY")
+```
+
+## 1. Start with an empty sandbox
+
+Create a sandbox with `POST /partner/restaurants` and store the restaurant key from the response; see [Create a restaurant](/partner-api#create-a-restaurant). An AI tool can do the same with the MCP tool `create_sandbox`, but it never gets the key: a person creates it on the sandbox's **API** tab in LettBestilt Partner.
+
+A new sandbox has a name and a slug, and nothing else: no opening hours, no delivery zones and no menu. `GET /partner/restaurants/{slug}` shows what is missing in `setup`.
+
+## 2. Settings
+
+`GET …/settings` returns the profile, visiting address, brand, ordering options, the texts on the tracking page and the receipt, and the legal fields, plus three fields that are not settings:
+
+- `version`: a version of the settings. Send it back as `expectedVersion` to make sure you do not overwrite a change someone else made.
+- `updatedAt`: when anything on the restaurant last changed, including orders. For information only.
+- `legal.locked`: `true` once the owner has signed the customer agreement.
+
+`PATCH …/settings` changes the fields you send; a field you leave out stays as it is. `null` or `""` clears a text field that may be empty.
+
+```bash
+curl -X PATCH "$API/$SLUG/settings" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expectedVersion": "3f9a1c0d7be24e51",
+    "name": "Pizza Roma",
+    "description": "Neapolitan pizza baked in a wood-fired oven.",
+    "phone": "+47 33 00 00 00",
+    "publicAddressLine1": "Storgata 1",
+    "publicPostalCode": "3110",
+    "publicCity": "Tønsberg",
+    "primaryColor": "#B3261E",
+    "pickupEnabled": true,
+    "deliveryEnabled": true,
+    "defaultPrepMinutes": 20,
+    "defaultDeliveryMinutes": 45
+  }'
+```
+
+The response is the settings after the change, with a new `version`.
+
+Rules worth knowing:
+
+- **Remove `version`, `updatedAt` and `legal` before you send a `GET` response back.** They are not settings, and sending them gives `422`.
+- `slug`, `email`, `storefrontEnabled`, the font, invoicing, agreements, payment and printers cannot be changed through the API (`422`, "Feltet kan ikke endres via API-et").
+- `latitude` and `longitude` go together: both or neither.
+- `logoUrl` and `coverImageUrl` must be files uploaded to LettBestilt. Any other address gives `422`. A value that is already stored is accepted, so a round trip from `GET` works.
+- `googleReviewUrl` must be `https`.
+- At least one of `pickupEnabled` and `deliveryEnabled` must stay `true`.
+- Free text (`name`, `description`, `cuisineType` and the texts on the tracking page and the receipt) is cleaned like menu text: links, email addresses, HTML and invisible direction marks are removed. When something was removed, the response has `textCleaned` with the number of fields.
+- **Legal fields** (`orgNumber`, `legalName`, `addressLine1`, `postalCode`, `city`) go into the customer agreement. You can change them until the owner has signed it. After that, a new value gives `409 LEGAL_LOCKED` with the fields in `error.details.fields`; the same value as stored is accepted. The lock applies in the restaurant dashboard too, so the owner sees the same rule. The visiting address (`publicAddressLine1`, `publicPostalCode`, `publicCity`) and the coordinates can always be changed. `orgNumber` must have a valid check digit (mod 11).
+
+## 3. Opening hours
+
+`PUT …/hours` replaces the whole week. A weekday you leave out is closed.
+
+```bash
+curl -X PUT "$API/$SLUG/hours" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "days": [
+      { "dayOfWeek": "MONDAY",    "opensAt": "15:00", "closesAt": "22:00", "isClosed": false },
+      { "dayOfWeek": "TUESDAY",   "opensAt": "15:00", "closesAt": "22:00", "isClosed": false },
+      { "dayOfWeek": "WEDNESDAY", "opensAt": "15:00", "closesAt": "22:00", "isClosed": false },
+      { "dayOfWeek": "THURSDAY",  "opensAt": "15:00", "closesAt": "22:00", "isClosed": false },
+      { "dayOfWeek": "FRIDAY",    "opensAt": "15:00", "closesAt": "23:00", "isClosed": false },
+      { "dayOfWeek": "SATURDAY",  "opensAt": "13:00", "closesAt": "23:00", "isClosed": false }
+    ]
+  }'
+```
+
+- Times are `HH:MM` in Norwegian time (Europe/Oslo). Each weekday at most once.
+- `closesAt` before `opensAt` (for example `18:00` to `02:00`) means open 00:00–02:00 and 18:00–24:00 **on the same weekday**, not a window into the next day. To stay open past midnight on Friday, give Saturday its own early window.
+- The week has no `updatedAt`, so `PUT` takes no `expectedUpdatedAt` (it gives `422`). Two saves at the same time run one after the other and the last one wins. The same week twice is a no-op.
+- Setting the hours does not tick off the opening hours step in the owner's **Get started** (*Kom i gang*); the owner confirms that.
+
+**Exceptions** (public holidays, holidays, summer hours) are overrides for a date range:
+
+```bash
+curl -X POST "$API/$SLUG/hours/overrides" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "label": "Julaften", "startDate": "2026-12-24", "endDate": "2026-12-24", "isClosed": true }'
+```
+
+- Dates are `YYYY-MM-DD` in Norwegian time, and `endDate` is **inclusive**.
+- An open override (`isClosed: false`) needs both `opensAt` and `closesAt`.
+- `PATCH …/hours/overrides/{overrideId}` changes the fields you send. To end an override early, set `endDate` to today; it still applies for the rest of today. An override that has not started yet is removed with `DELETE`.
+- Send `expectedUpdatedAt` (the `updatedAt` you read) with `PATCH` to get `409 CHANGED` instead of overwriting a change made in between.
+
+`GET …/hours` returns the week and every override, oldest first.
+
+## 4. Delivery
+
+Delivery needs `deliveryEnabled: true` in the settings **and** at least one active zone. A zone is either a list of postal codes or a radius around a point:
+
+```bash
+curl -X POST "$API/$SLUG/delivery-zones" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Sentrum", "type": "POSTAL_CODES", "postalCodes": ["3110", "3111", "3112"], "deliveryFee": 4900, "minimumOrder": 20000, "estimatedMinutes": 40 }'
+
+curl -X POST "$API/$SLUG/delivery-zones" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "5 km", "type": "RADIUS", "centerLat": 59.2675, "centerLng": 10.4076, "radiusKm": 5, "deliveryFee": 6900 }'
+```
+
+- Amounts are integers in øre (`4900` = 49 kr). `estimatedMinutes` is 0–240, `radiusKm` above 0 and at most 100.
+- Postal codes are four digits. A `POSTAL_CODES` zone needs at least one; a `RADIUS` zone needs `centerLat`, `centerLng` and `radiusKm`.
+- `PATCH …/delivery-zones/{zoneId}` changes the fields you send, and checks the result: changing `type` to `RADIUS` without a centre gives `422` with the path `centerLat`.
+- Turn a zone off with `{ "isActive": false }`. If it was the last active zone, delivery stops without a warning while `deliveryEnabled` is still `true`.
+- A restaurant can have up to 50 zones (`409 DELIVERY_ZONE_LIMIT`).
+- `name` and `centerLabel` are cleaned like menu text; `textCleaned` is in the response when something was removed. The same goes for `label` on opening hours overrides.
+- The go-live check has a `delivery` point: a warning when delivery is on without an active zone.
+
+## 5. A menu from a proposal
+
+`POST …/menus` creates a **new menu that is turned off** from a structured proposal: categories, products, sizes (variants) with prices in øre, and allergens. It is the same proposal [menu import](/partner-api#menu-import) produces, so an AI tool that has read the menu itself can send it straight in, and a menu import draft can be sent as it is.
+
+```bash
+curl -X POST "$API/$SLUG/menus" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Hovedmeny",
+    "proposal": {
+      "version": 1,
+      "categories": [
+        {
+          "name": "Pizza",
+          "products": [
+            { "number": 1, "name": "Margherita", "description": "Tomat, mozzarella, basilikum", "price": 16900, "allergens": ["WHEAT", "MILK"] },
+            { "number": 2, "name": "Pepperoni", "variants": [ { "name": "Liten", "price": 15900 }, { "name": "Stor", "price": 21900 } ], "allergens": ["WHEAT", "MILK"] }
+          ]
+        }
+      ]
+    }
+  }'
+```
+
+- A product has either `price` or `variants`; the first variant becomes the default. At most 60 categories, 800 products and 8 variants per product.
+- The proposal has the same limits as menu import: a price is at most 1 000 000 øre (10 000 kr) and a product name at most 195 characters. Products created or changed one by one (`…/products`, `…/products/batch`) take prices up to 10 000 000 øre (100 000 kr) and names up to 200 characters. Allergen codes are the EU codes in the API reference (`WHEAT`, `MILK`, `EGGS` …).
+- Names and descriptions are cleaned like menu import: links, email addresses, HTML and invisible direction marks are removed, and `textCleaned` in the response says how many were changed.
+- **Not idempotent.** A retry after a lost response can create a second menu. Check `GET …/menus` before you try again, and delete the extra one.
+- No existing menu is changed.
+- Every product in the proposal is active and counts against the restaurant's product limit (800 active, 2000 in all): over it, `409 PRODUCT_LIMIT` and nothing is created.
+
+`GET …/menus` lists every menu with its schedule, counts and `isLiveNow` (whether customers see it right now). `GET …/menus/{menuId}` returns the whole menu in the same shape as `GET /api/v1/menu`, also when it is turned off, including inactive categories and products.
+
+### Edit the menu piece by piece
+
+To add to a menu, or change it later, work on its categories, products and addon groups one at a time. The ids are in `GET …/menus/{menuId}`, and the addon groups in `GET …/addon-groups`. Every create and change (`POST`, `PATCH`) answers with the object as it is now, `textCleaned`, and a `notice` (about the cache, and anything the change left incomplete). `DELETE` answers with `id`, `deleted` and `soft`.
+
+```bash
+curl -X POST "$API/$SLUG/menus/$MENU_ID/categories" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Pizza", "description": "Steinovnsbakt" }'
+
+curl -X POST "$API/$SLUG/categories/$CATEGORY_ID/products" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Pepperoni",
+    "variants": [ { "name": "Liten", "price": 15900, "isDefault": true }, { "name": "Stor", "price": 21900 } ],
+    "allergens": ["WHEAT", "MILK"],
+    "allowedFulfillment": null
+  }'
+```
+
+- **Categories** have `name`, `description`, `sortOrder` and `isActive`.
+- **Products** have `name`, `description`, `basePrice` (øre; needed without sizes, otherwise the default size's price), `variants` (sizes, up to 8, at most one `isDefault`), `allergens`, `isVegan`, `isVegetarian`, `isPopular`, `allowedFulfillment` (`PICKUP`, `DELIVERY` or `null` for both), `isActive` and `isAvailable` (`false` = sold out). New ones can be created hidden with `isActive: false`.
+- **`POST …/products/batch`** creates 1–50 products in one call, each with its own `categoryId`. It is all or nothing: one invalid product (for example a `categoryId` from another menu, path `products.2.categoryId`) and none are created. Split larger menus into several calls.
+- **Addon groups** have `name`, `scope` (`GLOBAL` for every product, `CATEGORY` with `categoryId`, or `PRODUCT` with `productIds`), `minSelect`, `maxSelect`, `isRequired` and up to 20 `addons` (`name`, `price` in øre, `isAvailable`). Without `isRequired`, a group is required when `minSelect` is above 0.
+
+**Send the ids back when you change sizes or addons.** `variants` on a product and `addons` on a group are replaced as a set. A row with the `id` you read is updated in place; a row without `id` is new and gets a new id; a row you leave out is deleted. Keep the ids: a customer's basket on the website holds the size and addon ids from the cached menu, so new ids can make orders fail for up to five minutes. Sizes also keep their `addonTierKey`, and addons their size prices, only when you send the id.
+
+Rules worth knowing:
+
+- **Size prices for addons cannot be set through the API.** The API has no `tiers` or `tierPrices`. A new addon in a group that has sizes costs the same for every size, and a new size without `addonTierKey` gives addons their base price. `notice` says when that happens; set size prices in the dashboard.
+- **Images:** `imageUrl` (on `PATCH …/products/{productId}`) takes an image from LettBestilt's image library or one uploaded to LettBestilt, the value already stored, or `null` to remove it. Any other address gives `422`. `imageIsStock` follows the image: `true` for an image from the library, `false` for your own photo or no image. When it is `true`, the website must show "Illustrasjonsfoto" next to it (Norwegian marketing law).
+- **Deleting a category** with active products or subcategories gives `409 CATEGORY_NOT_EMPTY`: turn the products off or delete them first. A category whose inactive products have order history is turned off instead (`soft: true`). Its `CATEGORY` addon groups go with it (`removedAddonGroupIds`).
+- **Deleting a product** with order history turns it off instead (`soft: true`), so old orders keep it.
+- **Limits per restaurant:** 60 categories (`409 CATEGORY_LIMIT`), 800 active products and 2000 in all, also inactive ones (`409 PRODUCT_LIMIT`, also when an inactive product is turned on again), and 100 addon groups (`409 ADDON_GROUP_LIMIT`). Prices are at most 10 000 000 øre (100 000 kr), and product names at most 200 characters; a proposal in `POST …/menus` allows 10 000 kr and 195 characters.
+- Categories, products and addon groups have no `updatedAt`. Like menus, the write only goes through if the row is as it was when the API read it; `expectedUpdatedAt` is not accepted (`422`).
+- Combo products, the image library itself (search and upload), upsell and the order of menus and categories are done in the dashboard.
+
+## 6. Publish the menu
+
+Only `PATCH …/menus/{menuId}` puts a menu in front of customers:
+
+```bash
+curl -X PATCH "$API/$SLUG/menus/$MENU_ID" "${AUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "isActive": true, "isDefault": true }'
+```
+
+- `{ "isActive": true, "isDefault": true }` makes it the main menu. The previous default menu stops being the default in the same transaction, so there is always one main menu.
+- A menu with a schedule (`PUT …/menus/{menuId}/schedules`, for example a lunch menu on weekdays 11:00–14:00) **replaces** the default menu inside its time windows and is hidden outside them. A main menu without a schedule for the whole week must therefore be the default menu to be seen.
+- `priority` (a whole number from 0 to 100, in `GET …/menus`) decides which menu is shown when several have a time window at the same moment: the highest wins, and with equal priority all are shown. Reordering menus in the dashboard rewrites it (top is highest). `priority` on a schedule row is stored but not used.
+
+A menu with dates (`startsOn` and `endsOn`, `YYYY-MM-DD`, inclusive), for example a Christmas menu, is published in one of three ways:
+
+1. **Next to the main menu** in the period: `{ "isActive": true, "isDefault": true, "startsOn": …, "endsOn": … }`. A menu with dates never takes the default from the main menu (`defaultKept: true` in the response), so customers see both.
+2. **Instead of the main menu** in the period: `{ "isActive": true, "startsOn": …, "endsOn": …, "priority": … }` without `isDefault`, with a `priority` higher than the main menu's, and then a schedule with all seven days 00:00–23:59. Both are needed: without the schedule the menu is never shown, and when the main menu has a schedule of its own, equal priority shows both menus and a lower one shows only the main menu. After `endsOn` the main menu is back by itself.
+3. **A new main menu**: `{ "isActive": true, "isDefault": true }` without dates. The previous main menu stops being the default.
+
+A menu with dates but without `isDefault` or a schedule is never shown while another menu is the default.
+
+- `warnings` in the response says when no menu is visible afterwards, or when another menu becomes visible. `notice` explains how the menu now shows.
+- `{ "isActive": false }` takes a menu out of service.
+- `GET /api/v1/menu` is cached for up to five minutes, so the website can show the old menu for a while.
+
+`DELETE …/menus/{menuId}` deletes a menu that is not the default (`409 MENU_IS_DEFAULT`: make another menu the default first). A menu whose products have order history is turned off instead (`soft: true`), so old orders keep their products.
+
+## 7. Domains and webhooks
+
+Connect the website as described in the [LettBestilt Partner API](/partner-api#domains): add and verify the website's domains, choose the domain for tracking links, and add webhooks. [LettBestilt MCP](/mcp) can do the same from an AI tool.
+
+## 8. Go live
+
+For a real restaurant, `GET /partner/restaurants/{slug}` shows the go-live status in `goLive`. With the steps on this page, the checks for the menu, opening hours, delivery (a warning when delivery is on without an active zone) and allergens can be fixed through the API; campaign tracking is a script on the website (see [Campaign tracking](/campaign-tracking)). Online payment cannot: the owner sets it up with SagaPay, signs the agreements and sets the restaurant live. When the steps are done, ask LettBestilt for approval with `POST …/go-live-review`; see [Go-live approval](/partner-api#go-live-approval) and [From sandbox to live](/sandbox-to-live).
+
+## Changes at the same time
+
+The restaurant's owner, the partner portal and your code can change the same thing at the same time. Every write is conditional, so a change made in between is never overwritten silently; you get `409 CHANGED` instead. Read again and retry.
+
+| Object | How you guard a change |
+|---|---|
+| Settings | Send `expectedVersion` (the `version` from `GET`). An order does not change the version. Without it, the last write wins |
+| Opening hours (the week) | No token. Saves run one after another and the last one wins |
+| Hours overrides | Send `expectedUpdatedAt`. Without it, a change made between your read and your write still gives `409` |
+| Delivery zones | No token (zones have no `updatedAt`). The write only goes through if the whole zone is as it was when the API read it |
+| Menus, categories, products, addon groups | No token (none of them has `updatedAt`). The write only goes through if the row is as it was when the API read it |
+
+## The demo restaurant
+
+LettBestilt's demo restaurant can be read, but every write gives `409 DEMO_RESTAURANT`.
+
+## Errors
+
+The partner API's usual errors apply (`400 INVALID_JSON`, `422 VALIDATION_FAILED` with `error.details.issues`, `404 RESTAURANT_NOT_FOUND`, `409 RESTAURANT_ARCHIVED`, `429 RATE_LIMITED`). These are specific to the endpoints on this page:
+
+| Code | Status | When |
+|---|---|---|
+| `HOURS_OVERRIDE_NOT_FOUND` | 404 | The override does not belong to the restaurant |
+| `DELIVERY_ZONE_NOT_FOUND` | 404 | The zone does not belong to the restaurant |
+| `MENU_NOT_FOUND` | 404 | The menu does not belong to the restaurant |
+| `CATEGORY_NOT_FOUND` | 404 | The category does not belong to the restaurant |
+| `PRODUCT_NOT_FOUND` | 404 | The product does not belong to the restaurant |
+| `ADDON_GROUP_NOT_FOUND` | 404 | The addon group does not belong to the restaurant |
+| `CHANGED` | 409 | Someone changed the same thing at the same time, or `expectedVersion` / `expectedUpdatedAt` is out of date. Nothing was changed |
+| `LEGAL_LOCKED` | 409 | A legal field would get a new value after the owner signed the customer agreement. `error.details.fields` lists them |
+| `DEMO_RESTAURANT` | 409 | A write to LettBestilt's demo restaurant |
+| `DELIVERY_ZONE_LIMIT` | 409 | The restaurant already has 50 delivery zones |
+| `MENU_IS_DEFAULT` | 409 | You tried to delete the default menu |
+| `CATEGORY_NOT_EMPTY` | 409 | The category still has active products or subcategories |
+| `CATEGORY_LIMIT` | 409 | The restaurant already has 60 categories |
+| `PRODUCT_LIMIT` | 409 | The restaurant would get more than 800 active or 2000 products in all |
+| `ADDON_GROUP_LIMIT` | 409 | The restaurant already has 100 addon groups |
+
+An archived restaurant can be read, but every write on this page gives `409 RESTAURANT_ARCHIVED`.
+
+## Rate limits
+
+| What | Limit |
+|---|---|
+| All partner endpoints | 120 calls per minute per partner key |
+| Every write on this page | Shares the partner's 30 changes per minute with keys, webhooks and domains |
+| `POST …/menus` | Also 10 per hour per restaurant, shared with committing menu imports |
+
+Over a limit you get `429 RATE_LIMITED` with `Retry-After`.
+
+## What the API does not do
+
+- **Payment.** Card, Vipps, cash and the SagaPay application are the restaurant's own relationship with SagaPay and its customers. The owner sets them up in the dashboard.
+- **Customers, the team, printers and accounting.** Never through the partner API.
+- **Slug, email and the ordering page on `{slug}.lettbestilt.no`.** The slug is in every key and domain, and the email is the owner's login.
+- **Combo products, size prices for addons, searching and uploading to the image library, upsell and the order of menus and categories.** These are done in the dashboard.
+- **Ticking off the owner's steps in Get started.** The owner confirms them.
+
+Every endpoint, field and error is in the [API reference](/api-reference).
