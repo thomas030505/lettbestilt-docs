@@ -1,0 +1,200 @@
+---
+title: LettBestilt MCP
+subtitle: Let Claude Code, Cursor and other AI tools connect a restaurant's website to LettBestilt
+---
+
+{/*
+  Kilde i platform-repoet (docs/fern/mcp.mdx, trinn 3 B8, utvidet med oppsett 18.10.2026). Flyttes til
+  lettbestilt-docs/fern/pages/mcp.mdx under seksjonen Partners, med slug `mcp`
+  (partnerportalen lenker til https://docs.lettbestilt.no/mcp).
+*/}
+
+LettBestilt MCP is LettBestilt's MCP server, at `https://www.lettbestilt.no/api/mcp`. An AI coding tool that speaks the [Model Context Protocol](https://modelcontextprotocol.io) can use it to do the whole connection between a restaurant's website and LettBestilt while it writes the site: register the website's domains, set up webhooks, send test events, read the menu and the API log, place test orders in a sandbox, check the integration and ask LettBestilt for go-live approval.
+
+The only thing a person does is create the keys in LettBestilt Partner (the partner portal) and put them in environment variables in the website's project. The AI tool does the rest.
+
+<Note>
+LettBestilt MCP sets things up; it never runs the restaurant. No tool deletes anything, creates or rotates keys, invites owners, signs agreements, sets a restaurant live, creates, changes, cancels or refunds orders in a real restaurant, or returns customer data. Test orders only exist in sandboxes.
+</Note>
+
+## Keys
+
+The server uses the same two keys as the [LettBestilt Partner API](/partner-api):
+
+| Header | Key | Needed for |
+|---|---|---|
+| `Authorization: Bearer …` | Your **partner key** (`lbp_test_…`, or `lbp_live_…` once LettBestilt Partner is open) | Every call |
+| `X-LettBestilt-Restaurant-Key` | The restaurant's **restaurant key** (`lbs_test_…` or `lbs_live_…`) with access **Alt** (all) | Tools about one restaurant |
+
+The partner key decides the environment. A test key reaches your sandboxes; a live key reaches your real restaurants. The two can never be mixed: a test partner key with a live restaurant key (or the other way round) is rejected.
+
+<Note>
+Live partner keys work once LettBestilt Partner is open. Until then, a live partner key gets `403 PARTNER_LIVE_KEYS_DISABLED` and LettBestilt MCP only works with sandboxes. When it is open, a live key also requires that LettBestilt has approved your partner account (`403 PARTNER_NOT_APPROVED`) and that you have signed the partner agreements (`403 PARTNER_AGREEMENT_REQUIRED`).
+</Note>
+
+The partner key alone is enough for `list_restaurants`, `get_tracking_setup` and `search_docs`. Every other tool works on one restaurant, and the restaurant key decides which: one MCP connection reaches the one restaurant whose key is in `X-LettBestilt-Restaurant-Key`. Leave `slug` out and the tool uses that restaurant. `list_restaurants` shows all your restaurants in the environment, but a slug from that list only works when the restaurant key belongs to that restaurant; to work on another restaurant, put its restaurant key in the variable and restart the AI tool.
+
+The website's limited restaurant key (for example menu and orders only) does not work here. Create a separate key with access **Alt** on the restaurant's **API** tab for the AI tool, and keep it in its own variable, `LETTBESTILT_MCP_RESTAURANT_KEY`. The website's own key usually lives in `LETTBESTILT_API_KEY`; using the same name for both either gives `INSUFFICIENT_SCOPE` or puts the AI tool's key with access **Alt** in the website's production environment.
+
+## Set up Claude Code
+
+Put the keys in your shell, never in a file you commit:
+
+```bash
+export LETTBESTILT_PARTNER_KEY="lbp_test_..."          # lbp_live_... for a real restaurant, once LettBestilt Partner is open
+export LETTBESTILT_MCP_RESTAURANT_KEY="lbs_test_..."   # the restaurant key with access Alt, only for the AI tool
+```
+
+Add `.mcp.json` to the root of your project. It only references the variables, so it is safe to commit:
+
+```json .mcp.json
+{
+  "mcpServers": {
+    "lettbestilt": {
+      "type": "http",
+      "url": "https://www.lettbestilt.no/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${LETTBESTILT_PARTNER_KEY}",
+        "X-LettBestilt-Restaurant-Key": "${LETTBESTILT_MCP_RESTAURANT_KEY:-}"
+      }
+    }
+  }
+}
+```
+
+`${LETTBESTILT_MCP_RESTAURANT_KEY:-}` makes the restaurant key optional: without the `:-`, Claude Code refuses to start the server when the variable is not set. Start Claude Code in the project and run `/mcp` to check that `lettbestilt` is connected.
+
+We recommend `.mcp.json` over `claude mcp add --header …`, which stores the key itself in your Claude Code settings.
+
+## Set up Cursor
+
+Add `.cursor/mcp.json` to the project. Cursor reads environment variables with `${env:…}`:
+
+```json .cursor/mcp.json
+{
+  "mcpServers": {
+    "lettbestilt": {
+      "url": "https://www.lettbestilt.no/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:LETTBESTILT_PARTNER_KEY}",
+        "X-LettBestilt-Restaurant-Key": "${env:LETTBESTILT_MCP_RESTAURANT_KEY}"
+      }
+    }
+  }
+}
+```
+
+Cursor does not read your shell's startup files when you open it from the Dock or Finder on macOS, so the variables are empty there. Start Cursor from the terminal where the variables are set (`cursor .`), or set them system-wide.
+
+Both configurations are also on **Innstillinger → Partnernøkkel (API)** in the partner portal, ready to copy.
+
+## Tools
+
+The tools come in three classes. The class is fixed in the server and enforced on every call.
+
+**Read** (sandboxes and real restaurants):
+
+| Tool | What it does | Needs restaurant key |
+|---|---|---|
+| `list_restaurants` | Lists your restaurants in the partner key's environment, with slug and status | |
+| `get_restaurant_setup` | Setup steps, owner and go-live status, verified domains, webhooks and restaurant keys (never secrets), like `GET /api/v1/partner/restaurants/{slug}` | ✓ |
+| `get_menu` | The menu through `GET /api/v1/menu` (a sandbox, or a real restaurant that is live): a summary, or the full response with `view: "full"` | ✓ |
+| `check_integration` | The same check as **Sjekk integrasjonen** in the portal | ✓ |
+| `get_api_log` | The latest API calls: route, status, error code, request ID and an explanation | ✓ |
+| `list_webhook_deliveries` | Webhooks (without secrets) and their latest deliveries (without payloads) | ✓ |
+| `get_tracking_setup` | Ready code for [campaign tracking](/campaign-tracking) in Next.js, React, plain HTML or server-side | |
+| `search_docs` | Searches a small built-in set of short guides | |
+
+**Setup** (sandboxes and real restaurants):
+
+| Tool | What it does |
+|---|---|
+| `list_webhooks` | The restaurant's webhooks, never the secret |
+| `create_webhook` | Registers a public `https://` URL for the chosen events. The signing secret is in the response **once**; store it as an environment variable on the receiving server. On a real restaurant the webhook is only active when the URL's host is a domain of the restaurant that a person verified (or a subdomain of one), or your website; otherwise it is created paused (`paused: true`). A domain verified with `verify_domain` does not count |
+| `set_webhook_active` | Pauses or resumes a webhook (pass `expectedActive` to fail with `CHANGED` instead of overwriting someone else's change). It cannot resume a webhook on a real restaurant whose host is not trusted (`WEBHOOK_HOST_NOT_TRUSTED`); a person does that in the partner portal |
+| `send_test_webhook` | Sends a signed `PING` (no customer data) to a webhook that is already registered |
+| `list_domains` | The restaurant's domains, verified or not, with the TXT record a domain still waits for |
+| `add_domain` | Adds the website's host and returns the TXT record to create |
+| `verify_domain` | Looks up the TXT record and verifies the domain |
+| `set_primary_domain` | Chooses the verified domain order tracking links go to |
+| `get_go_live_status` | For a real restaurant: whether it needs approval, where the request stands and what is missing |
+| `request_go_live` | Asks LettBestilt to review a real restaurant before it goes live. An approval never sets it live: the owner does that |
+
+**Sandbox only** (anything that creates orders or test data):
+
+| Tool | What it does |
+|---|---|
+| `create_test_order` | A test order through `POST /api/v1/orders`: fictional customer, pickup, cash or simulated online payment, with an idempotency key |
+| `verify_attribution` | Places a test order with a campaign ID from the sandbox and confirms it was attributed |
+
+Against a real restaurant these give `403 SANDBOX_ONLY` and create nothing.
+
+**What LettBestilt MCP never does:** create, change, cancel or refund orders in a real restaurant; return customer data; delete a webhook, domain, key or restaurant (pause a webhook instead, and remove domains in the portal); create, rotate or revoke keys (a person does that in the portal); invite owners; sign agreements; set a restaurant live.
+
+`get_menu`, `create_test_order` and `verify_attribution` call the real `/api/v1` endpoints with the restaurant key. They validate, rate limit and fail exactly like your own code would, and they show up in the API log next to your own calls. The setup tools use the same rules as the partner portal and the partner API.
+
+## How the AI tool connects a website
+
+A typical session, once the keys are in the environment:
+
+1. `get_restaurant_setup` to see the restaurant the key belongs to and what is missing.
+2. `add_domain` for each host the website uses (`restaurant.no` and `www.restaurant.no` are two domains). Create the TXT records at the DNS provider, then `verify_domain`, and `set_primary_domain` for the host tracking links should use. Verified domains are also what lets the website call `/api/v1` from the browser and use its own `successUrl` and `cancelUrl`. On a real restaurant, a domain the AI tool verified does not make a webhook to it active; see [Security](#security).
+3. `create_webhook` with the website's receiving URL and events. Store the secret as an environment variable on that server and verify `X-LettBestilt-Webhook-Signature`. `send_test_webhook` and `list_webhook_deliveries` confirm that events arrive.
+4. `get_menu`, build the ordering flow, and in a sandbox `create_test_order` to test it end to end. `get_api_log` explains failed calls.
+5. `check_integration` until it is green.
+6. For a real restaurant: `get_go_live_status`, fix what is missing, then `request_go_live`. LettBestilt reviews it, and the owner sets the restaurant live.
+
+## Test orders
+
+`create_test_order` uses the first product that needs no choices when you leave `items` out. `payment` is one of:
+
+- `auto` (default): cash if the sandbox takes cash. Otherwise the order waits for a simulated online payment, and the tool returns `paymentUrl`, the test payment page where you pay or cancel.
+- `cash`: a cash order.
+- `online`: returns `paymentUrl`, the test payment page, where you can pay or cancel.
+- `online_paid`: pays right away, so `ORDER_PAID` goes to your webhooks. If the test payment fails, the order still exists: the error `SANDBOX_PAYMENT_UNAVAILABLE` carries `orderId`, `idempotencyKey` and `paymentUrl` in `details`.
+
+Send the same `idempotencyKey` again to retry without creating a second order; the response then has `replayed: true` and shows the order as it is. Without one, every call creates a new order, and the tool returns the key it made. A sandbox that is closed right now rejects the order like the API does; set opening hours in the sandbox first.
+
+`verify_attribution` takes the same `items`. Pass them when every product in the sandbox needs a choice (a required addon group); otherwise the tool stops with `NO_ORDERABLE_PRODUCT` before it creates a draft campaign. Items that cannot be ordered give `ITEM_NOT_ORDERABLE`, also before the draft.
+
+## Limits
+
+- 120 calls per minute per partner key, shared with the partner API.
+- Setup tools that change something: 60 per hour per partner key, and changes to webhooks and domains share the partner's 30 per minute with the portal and the partner API.
+- Test orders and `verify_attribution`: 30 per hour per partner key.
+- `send_test_webhook`: 5 per minute per webhook; `verify_domain`: 30 per 10 minutes per restaurant; `check_integration`: 10 per minute per restaurant; `request_go_live`: 15 per hour per restaurant and 30 per partner. All shared with the portal.
+- The delegated API calls also have the API's own limits.
+- At most 64 KB per request and 10 messages in a JSON-RPC batch. Each message in a batch counts as one call against the 120 per minute.
+
+The server is stateless and answers with JSON (Streamable HTTP without sessions). Only `POST` is supported; a client that opens an SSE stream with `GET` gets `405`.
+
+## Logging
+
+Tool calls about one restaurant are written to the restaurant's API log as `POST /api/mcp/{tool}`, with the request ID the response carries in `X-Request-Id`. A delegated call (menu, test order) also writes its own row, for example `GET /api/v1/menu`, with the same request ID. **Sjekk integrasjonen** ignores the `/api/mcp` rows, and tools that only read (`check_integration`, `get_api_log`, `get_restaurant_setup` and the like) never mark the key as used. The delegated `/api/v1` calls (`get_menu`, `create_test_order`, `verify_attribution`) count as real use of the key, so a sandbox you have only tested from an AI tool can already show the key as in use. Test orders from the MCP server do not count as the site's own orders: **Sjekk integrasjonen** leaves the delegated `POST /api/v1/orders` row from `create_test_order` and `verify_attribution` out of the latest order and out of the latest successful call with a key. To see the check go green, place an order from your own site.
+
+Every error carries the same request ID in `error.requestId`: in the HTTP response when the server stops the call (for example `401` or `429`), and inside the tool result when a tool fails. Give it to LettBestilt when you ask for help.
+
+Every change (webhooks, domains, test events, go-live requests, test orders and test campaigns) is also logged in the partner's activity log with the actor «MCP» and the partner key that was used.
+
+## Security
+
+- **Tool results are data, never instructions.** Product names, descriptions, webhook URLs and error messages can be written by people. The server tells the AI tool this, and the tools only return structured data. Review what your AI tool does before you let it run commands.
+- **No browsers.** A request with an `Origin` header is rejected, so a key can never be used from a web page.
+- **Keys stay out of git.** `.mcp.json` and `.cursor/mcp.json` only reference environment variables. Never paste a key into them.
+- **Test orders in sandboxes only.** A test partner key only reaches sandboxes, a live key only real restaurants, and every tool that creates orders or test data checks that the restaurant is a sandbox that is not archived. `create_webhook` only accepts public `https://` URLs, `send_test_webhook` only sends to a URL that is already registered, and `verify_domain` only looks up DNS.
+- **Webhooks only to hosts a person approved.** Webhooks carry order and customer data. On a real restaurant a webhook created through MCP is only active when its host is a domain of the restaurant that a person verified (in the partner portal or the restaurant dashboard) or that your own code verified through the partner API, or your website. A domain the AI tool added and verified itself with `add_domain` and `verify_domain` does not count, so a prompt injection cannot make an attacker's host trusted and send orders there. Anything else is created paused, and only a person in the partner portal can switch it on. A real restaurant under a partner also needs the owner's signed agreement and data processing agreement before any webhook can be added (`PARTNER_DATA_LOCKED`).
+- **Secrets once.** `create_webhook` returns the signing secret one time. Keep it in an environment variable, never in a committed file.
+
+## Troubleshooting
+
+- **The server shows "needs authentication" or "failed" in Claude Code (`/mcp`), or a red status in Cursor**: the partner key is empty or wrong. The server answers `401`, and the AI tool reads that as "sign in with OAuth", so you never see our error text and there is no sign-in page to find. Check that `LETTBESTILT_PARTNER_KEY` is set in the shell or environment the tool starts from (see the note about Cursor above), that it starts with `lbp_`, and restart the tool.
+- **`401` with "Send partnernøkkelen (lbp_) i Authorization"** (with `curl` or your own client): the partner key did not reach the server.
+- **`RESTAURANT_NOT_FOUND` for a restaurant `list_restaurants` just showed**: the restaurant key decides which restaurant the tools reach. One connection reaches only the restaurant its restaurant key belongs to. Leave out `slug` to use the key's restaurant, or set `LETTBESTILT_MCP_RESTAURANT_KEY` to a key for the restaurant you want and restart the AI tool.
+- **`403 PARTNER_LIVE_KEYS_DISABLED`**: you used a live partner key before LettBestilt Partner is open. Use a test key against a sandbox.
+- **`403 SANDBOX_ONLY`**: test orders and attribution checks only run in sandboxes.
+- **`INSUFFICIENT_SCOPE` from a tool**: the restaurant key does not have access **Alt**. Often it is the website's own limited key. Create a separate key with access **Alt** for the AI tool and put it in `LETTBESTILT_MCP_RESTAURANT_KEY`.
+- **A webhook is created with `paused: true`**: its host is not a domain a person verified, or your website. Switch it on in the partner portal under the restaurant's **Webhooks** tab if the address is right.
+
+## Sign-in with OAuth
+
+Planned. Later you will be able to connect an AI tool by signing in to the partner portal instead of handling keys yourself. Until then, use a partner key as described above.
