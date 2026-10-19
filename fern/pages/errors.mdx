@@ -43,6 +43,12 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `DOMAIN_NOT_FOUND` | 404 | Partner API: the domain does not belong to the restaurant |
 | `OWNER_INVITE_NOT_FOUND` | 404 | Partner API: the restaurant has no open owner invitation to revoke |
 | `MENU_IMPORT_NOT_FOUND` | 404 | Partner API: the menu import does not exist or belongs to another restaurant |
+| `HOURS_OVERRIDE_NOT_FOUND` | 404 | Partner API: the opening hours override does not belong to the restaurant |
+| `DELIVERY_ZONE_NOT_FOUND` | 404 | Partner API: the delivery zone does not belong to the restaurant |
+| `MENU_NOT_FOUND` | 404 | Partner API: the menu does not belong to the restaurant |
+| `CATEGORY_NOT_FOUND` | 404 | Partner API: the category does not belong to the restaurant |
+| `PRODUCT_NOT_FOUND` | 404 | Partner API: the product does not belong to the restaurant |
+| `ADDON_GROUP_NOT_FOUND` | 404 | Partner API: the addon group does not belong to the restaurant |
 | `ORDER_NOT_FOUND` | 404 | No order has this token |
 | `POPUP_NOT_AVAILABLE` | 404 | Newsletter signup is turned off for the restaurant |
 | `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has `expectedTotal`, `actualTotal` and `currency` |
@@ -65,7 +71,15 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `GO_LIVE_ALREADY_REQUESTED` | 409 | Partner API: a go-live request for the restaurant is already waiting for LettBestilt |
 | `GO_LIVE_ALREADY_APPROVED` | 409 | Partner API: LettBestilt has already approved the restaurant, and the approval is still valid |
 | `GO_LIVE_NOTHING_TO_WITHDRAW` | 409 | Partner API: there is no waiting go-live request to withdraw |
-| `CHANGED` | 409 | Partner API: the same thing was changed at the same time. Nothing was changed by your call; try again |
+| `CHANGED` | 409 | Partner API: the same thing was changed at the same time, or `expectedVersion` / `expectedUpdatedAt` is out of date. Nothing was changed by your call; read again and retry |
+| `LEGAL_LOCKED` | 409 | Partner API: a legal field (organisation number, legal name, legal address) would get a new value after the owner signed the customer agreement. `details.fields` lists them |
+| `DEMO_RESTAURANT` | 409 | Partner API: LettBestilt's demo restaurant can be read, but not changed |
+| `DELIVERY_ZONE_LIMIT` | 409 | Partner API: the restaurant already has 50 delivery zones |
+| `MENU_IS_DEFAULT` | 409 | Partner API: the default menu cannot be deleted. Make another menu the default first |
+| `CATEGORY_NOT_EMPTY` | 409 | Partner API: the category still has active products or subcategories |
+| `CATEGORY_LIMIT` | 409 | Partner API: the restaurant already has 60 categories |
+| `PRODUCT_LIMIT` | 409 | Partner API: the restaurant would get more than 800 active or 2000 products in all |
+| `ADDON_GROUP_LIMIT` | 409 | Partner API: the restaurant already has 100 addon groups |
 | `PDF_TOO_LARGE` | 413 | Partner API, menu import: the file (PDF or image) is larger than 4 MB |
 | `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
 | `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |

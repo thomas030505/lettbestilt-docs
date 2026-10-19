@@ -101,6 +101,9 @@ navigation:
           - page: LettBestilt Partner API
             slug: partner-api
             path: ./pages/partner-api.mdx
+          - page: Set up a restaurant through the API
+            slug: partner-setup-api
+            path: ./pages/partner-setup-api.mdx
           - page: From sandbox to live
             slug: sandbox-to-live
             path: ./pages/sandbox-to-live.mdx
@@ -186,6 +189,34 @@ navigation:
               - POST /api/v1/partner/restaurants/{slug}/menu-imports
               - GET /api/v1/partner/restaurants/{slug}/menu-imports/{importId}
               - POST /api/v1/partner/restaurants/{slug}/menu-imports/{importId}/commit
+              - GET /api/v1/partner/restaurants/{slug}/settings
+              - PATCH /api/v1/partner/restaurants/{slug}/settings
+              - GET /api/v1/partner/restaurants/{slug}/hours
+              - PUT /api/v1/partner/restaurants/{slug}/hours
+              - POST /api/v1/partner/restaurants/{slug}/hours/overrides
+              - PATCH /api/v1/partner/restaurants/{slug}/hours/overrides/{overrideId}
+              - DELETE /api/v1/partner/restaurants/{slug}/hours/overrides/{overrideId}
+              - GET /api/v1/partner/restaurants/{slug}/delivery-zones
+              - POST /api/v1/partner/restaurants/{slug}/delivery-zones
+              - PATCH /api/v1/partner/restaurants/{slug}/delivery-zones/{zoneId}
+              - DELETE /api/v1/partner/restaurants/{slug}/delivery-zones/{zoneId}
+              - GET /api/v1/partner/restaurants/{slug}/menus
+              - POST /api/v1/partner/restaurants/{slug}/menus
+              - GET /api/v1/partner/restaurants/{slug}/menus/{menuId}
+              - PATCH /api/v1/partner/restaurants/{slug}/menus/{menuId}
+              - DELETE /api/v1/partner/restaurants/{slug}/menus/{menuId}
+              - PUT /api/v1/partner/restaurants/{slug}/menus/{menuId}/schedules
+              - POST /api/v1/partner/restaurants/{slug}/menus/{menuId}/categories
+              - PATCH /api/v1/partner/restaurants/{slug}/categories/{categoryId}
+              - DELETE /api/v1/partner/restaurants/{slug}/categories/{categoryId}
+              - POST /api/v1/partner/restaurants/{slug}/categories/{categoryId}/products
+              - POST /api/v1/partner/restaurants/{slug}/products/batch
+              - PATCH /api/v1/partner/restaurants/{slug}/products/{productId}
+              - DELETE /api/v1/partner/restaurants/{slug}/products/{productId}
+              - GET /api/v1/partner/restaurants/{slug}/addon-groups
+              - POST /api/v1/partner/restaurants/{slug}/addon-groups
+              - PATCH /api/v1/partner/restaurants/{slug}/addon-groups/{groupId}
+              - DELETE /api/v1/partner/restaurants/{slug}/addon-groups/{groupId}
           - section: Webhooks
             referenced-packages:
               - webhooks

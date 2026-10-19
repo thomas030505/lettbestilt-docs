@@ -1756,6 +1756,660 @@ paths:
         "429":
           description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, 10 commits per hour for the restaurant or 30 changes per minute for the partner."
 
+  # ---------------------------------------------------------------------------
+  # Partner: set up a restaurant (trinn 4)
+  # ---------------------------------------------------------------------------
+  /api/v1/partner/restaurants/{slug}/settings:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    get:
+      operationId: getPartnerRestaurantSettings
+      tags: [Partner]
+      summary: Get the restaurant's settings
+      description: |-
+        **Partner key + restaurant key.** The profile, visiting address, brand, ordering options, the texts on the tracking page and the receipt, and the legal fields, with `version` (send it as `expectedVersion`), `updatedAt` (anything on the restaurant, including orders; for information only) and `legal.locked`. Also allowed for an archived restaurant.
+      responses:
+        "401": &partnerSetup401
+          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
+        "403": &partnerSetup403
+          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
+        "404": &partnerSetup404
+          description: "`RESTAURANT_NOT_FOUND`: the slug does not exist, belongs to another partner or does not match the restaurant key."
+        "429": &partnerSetup429
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or 30 changes per minute for the partner."
+    patch:
+      operationId: updatePartnerRestaurantSettings
+      tags: [Partner]
+      summary: Change the restaurant's settings
+      description: |-
+        **Partner key + restaurant key.** Changes the fields you send; a field you leave out stays as it is. With `expectedVersion`, nothing is written if the settings changed since you read them (`409 CHANGED`); an order does not count as a change.
+
+        The legal fields (`orgNumber`, `legalName`, `addressLine1`, `postalCode`, `city`) can be changed until the owner has signed the customer agreement; after that a new value gives `409 LEGAL_LOCKED` (the stored value is accepted). The logo and cover image must be uploaded to LettBestilt. Remove `version`, `updatedAt` and `legal` before you send a `GET` response back. Slug, email, the ordering page, the font, invoicing, agreements, payment and printers cannot be changed here.
+      requestBody:
+        content:
+          application/json:
+            example:
+              expectedVersion: 3f9a1c0d7be24e51
+              name: Pizza Roma
+              primaryColor: "#B3261E"
+              pickupEnabled: true
+              deliveryEnabled: true
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "409":
+          description: "`CHANGED`: the settings changed since `expectedVersion`, or at the same time. `LEGAL_LOCKED`: the owner has signed the customer agreement (`error.details.fields`). `DEMO_RESTAURANT`: LettBestilt's demo restaurant cannot be changed. `RESTAURANT_ARCHIVED`: the restaurant is archived."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an invalid value, an unknown field or one that cannot be changed through the API, an empty body, only one of `latitude`/`longitude`, an image from another host, an invalid organisation number, a `googleReviewUrl` without https, or both `pickupEnabled` and `deliveryEnabled` false."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/hours:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    get:
+      operationId: getPartnerRestaurantHours
+      tags: [Partner]
+      summary: Get the opening hours
+      description: |-
+        **Partner key + restaurant key.** The week, Monday first (a weekday that is missing is closed), and every override, oldest first. Also allowed for an archived restaurant.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "429": *partnerSetup429
+    put:
+      operationId: setPartnerRestaurantHours
+      tags: [Partner]
+      summary: Replace the weekly opening hours
+      description: |-
+        **Partner key + restaurant key.** Replaces the whole week with `days` (1–7 days, each weekday at most once; a weekday you leave out is closed). Times are `HH:MM` in Europe/Oslo. `closesAt` before `opensAt` means open 00:00–`closesAt` and `opensAt`–24:00 on the same weekday, not a window into the next day.
+
+        The week has no `updatedAt`, so this takes no `expectedUpdatedAt`; two saves at the same time run one after the other and the last one wins. The same week twice changes nothing. Overrides are not touched, and the owner's opening hours step in Get started is not ticked off.
+      requestBody:
+        content:
+          application/json:
+            example:
+              days:
+                - { dayOfWeek: MONDAY, opensAt: "15:00", closesAt: "22:00", isClosed: false }
+                - { dayOfWeek: SATURDAY, opensAt: "13:00", closesAt: "23:00", isClosed: false }
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "409":
+          description: "`RESTAURANT_ARCHIVED`, `DEMO_RESTAURANT`, or `CHANGED` (a rare database conflict; read and try again)."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: a weekday twice (path `days.1.dayOfWeek`), a time that is not `HH:MM`, or an unknown field such as `expectedUpdatedAt`."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/hours/overrides:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    post:
+      operationId: createPartnerHoursOverride
+      tags: [Partner]
+      summary: Add an opening hours override
+      description: |-
+        **Partner key + restaurant key.** An exception for a date range: a public holiday, a holiday or summer hours. Dates are `YYYY-MM-DD` in Europe/Oslo and `endDate` is inclusive. `isClosed: true` closes the whole range; an open override needs both `opensAt` and `closesAt`. When several overrides cover the same day, the one with the shortest range wins.
+      requestBody:
+        content:
+          application/json:
+            example:
+              label: Julaften
+              startDate: "2026-12-24"
+              endDate: "2026-12-24"
+              isClosed: true
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "409":
+          description: "`RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an unknown field, an invalid date or time, `endDate` before `startDate` (path `endDate`), or open without times (path `opensAt`)."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/hours/overrides/{overrideId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: overrideId
+        in: path
+        description: The override's `id` from `GET …/hours`.
+    patch:
+      operationId: updatePartnerHoursOverride
+      tags: [Partner]
+      summary: Change an opening hours override
+      description: |-
+        **Partner key + restaurant key.** Changes the fields you send. End a range early with `{ "endDate": "<today>" }` (it still applies for the rest of today); an override that has not started is removed with `DELETE`. With `expectedUpdatedAt`, a change made in between gives `409 CHANGED`; without it, the first write wins and the second gets `409`.
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `HOURS_OVERRIDE_NOT_FOUND` when the override does not belong to the restaurant."
+        "409":
+          description: "`CHANGED` (changed at the same time, or `expectedUpdatedAt` is out of date), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an unknown field, an empty change, an invalid date or time, or a result where `endDate` is before `startDate` or an open range has no times."
+        "429": *partnerSetup429
+    delete:
+      operationId: deletePartnerHoursOverride
+      tags: [Partner]
+      summary: Remove an opening hours override
+      description: |-
+        **Partner key + restaurant key.** The weekly hours apply again for the dates.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `HOURS_OVERRIDE_NOT_FOUND` when the override does not belong to the restaurant."
+        "409":
+          description: "`RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/delivery-zones:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    get:
+      operationId: listPartnerDeliveryZones
+      tags: [Partner]
+      summary: List the delivery zones
+      description: |-
+        **Partner key + restaurant key.** Every zone, active first, then by name. `nextCursor` is always `null`. Active zones are also in `deliveryZones` in `GET /api/v1/menu`. Also allowed for an archived restaurant.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "429": *partnerSetup429
+    post:
+      operationId: createPartnerDeliveryZone
+      tags: [Partner]
+      summary: Create a delivery zone
+      description: |-
+        **Partner key + restaurant key.** A zone by postal codes (`POSTAL_CODES`, four digits each) or by radius (`RADIUS`, with `centerLat`, `centerLng` and `radiusKm` above 0 and at most 100). Amounts are integers in øre. Delivery also needs `deliveryEnabled` in the settings. Up to 50 zones per restaurant.
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Sentrum
+              type: POSTAL_CODES
+              postalCodes: ["3110", "3111"]
+              deliveryFee: 4900
+              minimumOrder: 20000
+              estimatedMinutes: 40
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "409":
+          description: "`DELIVERY_ZONE_LIMIT` (50 zones already), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an unknown field, an invalid postal code or amount, a `POSTAL_CODES` zone without postal codes, or a `RADIUS` zone without a centre or radius."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/delivery-zones/{zoneId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: zoneId
+        in: path
+        description: The zone's `id`.
+    patch:
+      operationId: updatePartnerDeliveryZone
+      tags: [Partner]
+      summary: Change a delivery zone
+      description: |-
+        **Partner key + restaurant key.** Changes the fields you send and checks the result, so a change never leaves an invalid zone. Turn a zone off with `{ "isActive": false }`. Zones have no `updatedAt`: the write only goes through if the zone is as it was when the API read it, otherwise `409 CHANGED`.
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `DELIVERY_ZONE_NOT_FOUND` when the zone does not belong to the restaurant."
+        "409":
+          description: "`CHANGED` (the zone was changed or deleted at the same time), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an empty change, an unknown field, a field that does not apply to the zone's type, or a result without postal codes or centre (for example path `centerLat`)."
+        "429": *partnerSetup429
+    delete:
+      operationId: deletePartnerDeliveryZone
+      tags: [Partner]
+      summary: Delete a delivery zone
+      description: |-
+        **Partner key + restaurant key.** Deletes the zone.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`, or `DELIVERY_ZONE_NOT_FOUND` when the zone does not belong to the restaurant."
+        "409":
+          description: "`RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/menus:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    get:
+      operationId: listPartnerMenus
+      tags: [Partner]
+      summary: List the menus
+      description: |-
+        **Partner key + restaurant key.** Every menu, active or not, with its schedule, counts and `isLiveNow` (whether customers see it right now). `nextCursor` is always `null`.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "429": *partnerSetup429
+    post:
+      operationId: createPartnerMenu
+      tags: [Partner]
+      summary: Create a menu from a proposal (turned off)
+      description: |-
+        **Partner key + restaurant key.** Creates a **new** menu that is turned off and is not the default menu, with categories, products, sizes and allergens, from the same proposal `menu-imports/{importId}/commit` takes. Names and descriptions are cleaned (`textCleaned`). No existing menu is changed. Every product in the proposal is active and counts against the restaurant's product limit (800 active, 2000 in all), like `…/products/batch`. Publish it with `PATCH …/menus/{menuId}`.
+
+        **Not idempotent**: a retry after a lost response can create a second menu, so check `GET …/menus` first. 10 per hour per restaurant (shared with menu import commits) and 30 changes per minute per partner.
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Hovedmeny
+              proposal:
+                version: 1
+                categories:
+                  - name: Pizza
+                    products:
+                      - { name: Margherita, price: 16900, allergens: [WHEAT, MILK] }
+      responses:
+        "201":
+          description: The menu is created and turned off.
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "409":
+          description: "`PRODUCT_LIMIT` (the proposal would take the restaurant over 800 active or 2000 products in all; nothing is created), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues` (paths such as `proposal.categories.0.products.1.price`): a missing name or price, fields that are too long (a product name is at most 195 characters here), a price over 1 000 000 øre (10 000 kr, as in menu import; `…/products` allows 100 000 kr), unknown allergen codes, too many products (at most 60 categories and 800 products) or unknown fields."
+        "429":
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, 10 menus per hour for the restaurant or 30 changes per minute for the partner."
+
+  /api/v1/partner/restaurants/{slug}/menus/{menuId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: menuId
+        in: path
+        description: The menu's `id`.
+    get:
+      operationId: getPartnerMenu
+      tags: [Partner]
+      summary: Get a menu
+      description: |-
+        **Partner key + restaurant key.** The whole menu in the same shape as `GET /api/v1/menu`, also when it is turned off, including inactive categories and products. Prices in øre.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": &partnerMenu404
+          description: "`RESTAURANT_NOT_FOUND`, or `MENU_NOT_FOUND` when the menu does not belong to the restaurant."
+        "429": *partnerSetup429
+    patch:
+      operationId: updatePartnerMenu
+      tags: [Partner]
+      summary: Change or publish a menu
+      description: |-
+        **Partner key + restaurant key.** The only call that puts a menu in front of customers. `{ "isActive": true, "isDefault": true }` makes it the main menu, and the previous default menu stops being the default in the same transaction. `{ "isActive": false }` takes it out of service. `priority` (0–100) decides which menu is shown when several have a time window at the same moment: the highest wins, and with equal priority all are shown. Reordering menus in the dashboard rewrites it (top is highest).
+
+        A menu with dates (`startsOn`/`endsOn`) is published in one of three ways:
+
+        1. **Next to the main menu** in the period: dates and `isDefault: true`. The main menu stays the default (`defaultKept: true`) and customers see both.
+        2. **Instead of the main menu** in the period: dates without `isDefault`, a `priority` higher than the main menu's, and a schedule with all seven days 00:00–23:59 (`PUT …/schedules`). Both are needed: without the schedule the menu is never shown, and when the main menu has a schedule of its own, equal priority shows both and a lower one shows only the main menu.
+        3. **A new main menu**: `isDefault: true` without dates. The previous main menu stops being the default.
+
+        A menu with dates but without `isDefault` or a schedule is never shown while another menu is the default.
+
+        A menu with a schedule replaces the default menu inside its time windows and is hidden outside them, so a main menu without a schedule for the whole week must be the default to be seen. `warnings` says when no menu is visible afterwards, or another menu becomes visible. `name` is cleaned like category names (`textCleaned` in the response). `GET /api/v1/menu` is cached for up to five minutes. Menus have no `updatedAt`: the write only goes through if the menu is as it was when the API read it, otherwise `409 CHANGED`.
+      requestBody:
+        content:
+          application/json:
+            example:
+              isActive: true
+              isDefault: true
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerMenu404
+        "409":
+          description: "`CHANGED` (the menu changed at the same time; read it and try again), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an empty body, an unknown field, an invalid date, `endsOn` before `startsOn`, or a `priority` that is not a whole number from 0 to 100."
+        "429": *partnerSetup429
+    delete:
+      operationId: deletePartnerMenu
+      tags: [Partner]
+      summary: Delete a menu
+      description: |-
+        **Partner key + restaurant key.** Deletes a menu that is not the default menu, with its categories and products. A menu whose products have order history is turned off instead (`soft: true`), so old orders keep their products.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerMenu404
+        "409":
+          description: "`MENU_IS_DEFAULT` (make another menu the default first), `CHANGED` (the menu became the default at the same time), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/menus/{menuId}/schedules:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: menuId
+        in: path
+        description: The menu's `id`.
+    put:
+      operationId: setPartnerMenuSchedules
+      tags: [Partner]
+      summary: Set a menu's schedule
+      description: |-
+        **Partner key + restaurant key.** Replaces the whole schedule; an empty list removes it. Times are `HH:MM` in Europe/Oslo and `endsAt` must be after `startsAt` on the same day. A menu with a schedule replaces the default menu inside its time windows. When the windows of two menus overlap, the menu's `priority` (set with `PATCH …/menus/{menuId}`) decides; `priority` on a schedule row is stored but not used. Unknown fields, also on a row, give `422`.
+      requestBody:
+        content:
+          application/json:
+            example:
+              schedules:
+                - { dayOfWeek: MONDAY, startsAt: "11:00", endsAt: "14:00" }
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerMenu404
+        "409":
+          description: "`RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an invalid day or time, an end before the start, too many time windows, or unknown fields in the body or on a row (for example `schedules.0.id`)."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/menus/{menuId}/categories:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: menuId
+        in: path
+        description: The menu's `id`.
+    post:
+      operationId: createPartnerCategory
+      tags: [Partner]
+      summary: Add a category to a menu
+      description: |-
+        **Partner key + restaurant key.** A new category with `name`, `description`, `sortOrder` (left out = last) and `isActive` (default true). Names and descriptions are cleaned (`textCleaned`). Up to 60 categories per restaurant.
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Pizza
+              description: Steinovnsbakt
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerMenu404
+        "409":
+          description: "`CATEGORY_LIMIT` (60 categories already), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422": &partnerItem422
+          description: "`VALIDATION_FAILED` with `error.details.issues`: a missing or invalid field, an unknown field (also `expectedUpdatedAt`), or a name that is empty after cleaning."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/categories/{categoryId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: categoryId
+        in: path
+        description: The category's `id` from `GET …/menus/{menuId}`.
+    patch:
+      operationId: updatePartnerCategory
+      tags: [Partner]
+      summary: Change a category
+      description: |-
+        **Partner key + restaurant key.** Changes `name`, `description`, `isActive` or `sortOrder`. Categories have no `updatedAt`: the write only goes through if the category is as it was when the API read it, otherwise `409 CHANGED`.
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": &partnerCategory404
+          description: "`RESTAURANT_NOT_FOUND`, or `CATEGORY_NOT_FOUND` when the category does not belong to the restaurant."
+        "409":
+          description: "`CHANGED` (changed at the same time), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422": *partnerItem422
+        "429": *partnerSetup429
+    delete:
+      operationId: deletePartnerCategory
+      tags: [Partner]
+      summary: Delete a category
+      description: |-
+        **Partner key + restaurant key.** A category with active products or subcategories gives `409 CATEGORY_NOT_EMPTY`; turn it off with `isActive: false` instead. If an inactive product in it has order history, the category is turned off (`soft: true`). Otherwise it is deleted with its inactive products, and addon groups with scope `CATEGORY` for it are removed too (`removedAddonGroupIds`).
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerCategory404
+        "409":
+          description: "`CATEGORY_NOT_EMPTY`, `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/categories/{categoryId}/products:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: categoryId
+        in: path
+        description: The category's `id`.
+    post:
+      operationId: createPartnerProduct
+      tags: [Partner]
+      summary: Add a product to a category
+      description: |-
+        **Partner key + restaurant key.** A product with `name`, `description`, `basePrice` (øre; needed without sizes, otherwise the default size's price), up to 8 `variants` (at most one `isDefault`), `allergens`, `isVegan`, `isVegetarian`, `isPopular`, `allowedFulfillment`, `isActive` and `isAvailable`. Up to 800 active and 2000 products in all per restaurant.
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Pepperoni
+              variants:
+                - { name: Liten, price: 15900, isDefault: true }
+                - { name: Stor, price: 21900 }
+              allergens: [WHEAT, MILK]
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerCategory404
+        "409":
+          description: "`PRODUCT_LIMIT`, `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: a missing price without sizes, more than one default size, unknown allergen codes, an `id` on a new size, or an unknown field."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/products/batch:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    post:
+      operationId: createPartnerProductsBatch
+      tags: [Partner]
+      summary: Add up to 50 products in one call
+      description: |-
+        **Partner key + restaurant key.** `products` is 1–50 products, each with its own `categoryId` and the same fields as a single product. All or nothing: one invalid product and none are created. An unknown `categoryId` is `422` with the path `products.N.categoryId`, not `404`. The whole batch counts against the product limit.
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "409":
+          description: "`PRODUCT_LIMIT` (the whole batch is counted), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues` (paths such as `products.2.categoryId`): more than 50 products, an unknown category, or an invalid product."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/products/{productId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: productId
+        in: path
+        description: The product's `id` from `GET …/menus/{menuId}`.
+    patch:
+      operationId: updatePartnerProduct
+      tags: [Partner]
+      summary: Change a product
+      description: |-
+        **Partner key + restaurant key.** Changes the fields you send, including `isAvailable` (sold out), `isActive` and `imageUrl` (an image from LettBestilt's image library or uploaded to LettBestilt, or `null`). `variants` and `allergens` are replaced as a whole set. Send the `id` of each size you keep: a size without `id` gets a new id, and baskets on the website can fail for up to five minutes. `imageIsStock` follows a new image (`true` for the image library, which the website must label "Illustrasjonsfoto").
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": &partnerProduct404
+          description: "`RESTAURANT_NOT_FOUND`, or `PRODUCT_NOT_FOUND` when the product does not belong to the restaurant."
+        "409":
+          description: "`CHANGED` (changed at the same time), `PRODUCT_LIMIT` (turning on an inactive product), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an empty change, an unknown field, a size `id` that is not the product's (path `variants.N.id`), or an image from another host."
+        "429": *partnerSetup429
+    delete:
+      operationId: deletePartnerProduct
+      tags: [Partner]
+      summary: Delete a product
+      description: |-
+        **Partner key + restaurant key.** A product with order history is turned off instead (`soft: true`), so old orders keep it.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerProduct404
+        "409":
+          description: "`RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/addon-groups:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+    get:
+      operationId: listPartnerAddonGroups
+      tags: [Partner]
+      summary: List the addon groups
+      description: |-
+        **Partner key + restaurant key.** Every addon group with its scope, products, sizes (read only) and addons with their ids. `nextCursor` is always `null`.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "429": *partnerSetup429
+    post:
+      operationId: createPartnerAddonGroup
+      tags: [Partner]
+      summary: Create an addon group
+      description: |-
+        **Partner key + restaurant key.** `scope` is `GLOBAL` (every product), `CATEGORY` (with `categoryId`) or `PRODUCT` (with `productIds`). `minSelect` defaults to 0 and `maxSelect` to 1; without `isRequired`, the group is required when `minSelect` is above 0. 1–20 `addons` with unique names and prices in øre, without `id`. Size prices cannot be set through the API. Up to 100 groups per restaurant.
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Ekstra
+              scope: PRODUCT
+              productIds: [prod_123]
+              maxSelect: 3
+              addons:
+                - { name: Ost, price: 1500 }
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerSetup404
+        "409":
+          description: "`ADDON_GROUP_LIMIT` (100 groups already), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: a scope without its category or products, addons with the same name, an `id` on a new addon, or `minSelect` above `maxSelect`."
+        "429": *partnerSetup429
+
+  /api/v1/partner/restaurants/{slug}/addon-groups/{groupId}:
+    parameters:
+      - name: slug
+        in: path
+        description: The restaurant's slug.
+      - name: groupId
+        in: path
+        description: The addon group's `id` from `GET …/addon-groups`.
+    patch:
+      operationId: updatePartnerAddonGroup
+      tags: [Partner]
+      summary: Change an addon group
+      description: |-
+        **Partner key + restaurant key.** Changes the fields you send. `addons` is replaced as a whole set: send the `id` of each addon you keep (it keeps its id and its size prices); an addon without `id` is new, and one you leave out is deleted. `notice` says when new addons in a group with sizes have no size prices.
+      responses:
+        "400":
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": &partnerAddonGroup404
+          description: "`RESTAURANT_NOT_FOUND`, or `ADDON_GROUP_NOT_FOUND` when the group does not belong to the restaurant."
+        "409":
+          description: "`CHANGED` (changed at the same time), `RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an empty change, an unknown field, an addon `id` that is not the group's (path `addons.N.id`), or addons with the same name."
+        "429": *partnerSetup429
+    delete:
+      operationId: deletePartnerAddonGroup
+      tags: [Partner]
+      summary: Delete an addon group
+      description: |-
+        **Partner key + restaurant key.** Deletes the group and its addons.
+      responses:
+        "401": *partnerSetup401
+        "403": *partnerSetup403
+        "404": *partnerAddonGroup404
+        "409":
+          description: "`RESTAURANT_ARCHIVED` or `DEMO_RESTAURANT`."
+        "429": *partnerSetup429
+
 # -----------------------------------------------------------------------------
 # Webhooks (OpenAPI 3.1). Payloads verified against the platform's
 # dispatchWebhook() call sites.

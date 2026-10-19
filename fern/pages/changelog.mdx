@@ -5,6 +5,38 @@ subtitle: Changes to the LettBestilt API and the partner tools
 
 Newest first. New fields, endpoints, error codes and events can appear in `/api/v1` at any time, so ignore what you do not recognise.
 
+## 2026-10-19: Set up a restaurant through the API, and LettBestilt MCP configuration tools
+
+**Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed.
+
+### New
+
+- **[Set up a restaurant through the API](/partner-setup-api)**: the partner API now sets up the restaurant itself, with the same rules as the restaurant dashboard. A partner can change what a developer on the partner team can change there, and nothing more.
+  - **Settings**: `GET` and `PATCH …/{slug}/settings` for the profile, visiting address, colours, logo and cover image, pickup and delivery, preparation times, the texts on the tracking page and the receipt, and the legal fields. `version` and `expectedVersion` stop you from overwriting a change made in between.
+  - **Opening hours**: `GET` and `PUT …/{slug}/hours` for the week, and `POST …/{slug}/hours/overrides`, `PATCH` and `DELETE …/{slug}/hours/overrides/{overrideId}` for holidays and other exceptions.
+  - **Delivery zones**: `GET` and `POST …/{slug}/delivery-zones`, `PATCH` and `DELETE …/{slug}/delivery-zones/{zoneId}`, by postal code or by radius.
+  - **Menus**: `POST …/{slug}/menus` creates a menu that is turned off from the same proposal as menu import, `PATCH …/{slug}/menus/{menuId}` publishes it, `PUT …/{slug}/menus/{menuId}/schedules` sets its schedule, and `GET`, `DELETE` read and remove menus.
+  - **Categories, products and addon groups**: `POST …/{slug}/menus/{menuId}/categories`, `PATCH` and `DELETE …/{slug}/categories/{categoryId}`, `POST …/{slug}/categories/{categoryId}/products`, `POST …/{slug}/products/batch` (up to 50 products in one call), `PATCH` and `DELETE …/{slug}/products/{productId}`, and `GET`, `POST`, `PATCH` and `DELETE` for `…/{slug}/addon-groups`. Sizes and addons keep their ids when you send them back, so baskets on the website keep working.
+- **[LettBestilt MCP](/mcp)** now sets up a whole restaurant: it has 40 tools, and a new class of **configuration** tools.
+  - **Opening hours, delivery and settings**: `set_opening_hours`, `add_hours_override`, `update_hours_override`, `create_delivery_zone`, `update_delivery_zone` and `update_settings`, plus the read tools `get_opening_hours`, `list_delivery_zones` and `get_settings`.
+  - **The menu**: `create_menu` creates a menu that is turned off from a proposal the AI tool builds from the restaurant's menu, `add_category`, `update_category`, `add_products`, `update_product` and `set_addon_group` edit it piece by piece (sizes and addons keep their ids), `set_menu_schedule` sets its schedule, and `publish_menu` puts it in service in one of [three ways](/mcp#publish-a-menu). The read tool `list_menus` lists every menu, and `get_menu` with `menuId` reads one menu, also when it is off.
+  - They call the partner API, so they validate and fail the same way. They never delete a menu, category, product, addon group, delivery zone or override: those are turned off with `isActive: false` or ended with `endDate`. `update_product` and `set_addon_group` replace the whole set of sizes or addons, so one you leave out is removed. `publish_menu`, `set_menu_schedule`, `update_category`, `update_product` and `set_addon_group` are marked `destructiveHint`, so AI tools ask before they run them.
+  - The guide [Set up a restaurant from scratch](/mcp#set-up-a-restaurant-from-scratch) walks through the order: sandbox, settings, hours, delivery, menu, domains and webhooks, test order and go-live.
+- **A welcome card and `help` in LettBestilt MCP**: the AI tool greets you with what it can do and a few things to try, and "hjelp" or "help" gives every tool, one area ("hjelp meny") or one tool with its fields and an example ("hjelp publish_menu"), in Norwegian or English. Claude Code also gets the prompts `/mcp__lettbestilt__welcome` and `/mcp__lettbestilt__help`. See [Getting started and help](/mcp#getting-started-and-help).
+- **`create_sandbox`** in LettBestilt MCP creates a sandbox with a test partner key. It never returns a restaurant key; a person creates it in LettBestilt Partner.
+
+### Changed
+
+- **Menu `priority`**: `PATCH …/menus/{menuId}` takes `priority` (0–100), and `GET …/menus`, `list_menus` and `publish_menu` show and take it. When several menus have a time window at the same moment, the highest priority is shown. A menu that replaces the main menu for a period needs dates, a full-week schedule **and** a priority higher than the main menu's; see [Publish the menu](/partner-setup-api#6-publish-the-menu).
+- `POST …/menus` counts the proposal's products against the product limit (`409 PRODUCT_LIMIT`), and `PATCH …/menus/{menuId}` cleans `name` (`textCleaned`).
+- `PUT …/menus/{menuId}/schedules` rejects unknown fields on a row with `422`.
+- Free text in settings, delivery zones and opening hours overrides is cleaned like menu text, with `textCleaned` in the response when something was removed.
+- The legal fields are locked after the owner has signed the customer agreement in the restaurant dashboard too (`LEGAL_LOCKED`).
+- The go-live check has a new point, `delivery`: a warning when delivery is on without an active delivery zone.
+- LettBestilt MCP accepts requests up to 256 KB (was 64 KB), so a menu of a couple of hundred products fits in one call.
+- LettBestilt MCP's configuration tools have their own limit of 300 changes per hour per partner key, separate from the 60 per hour for setup tools. `RATE_LIMITED` from these limits and from the partner API carries `details.retryAfterSeconds`.
+- New error codes: `DEMO_RESTAURANT`, `LEGAL_LOCKED`, `HOURS_OVERRIDE_NOT_FOUND`, `DELIVERY_ZONE_NOT_FOUND`, `DELIVERY_ZONE_LIMIT`, `MENU_NOT_FOUND`, `MENU_IS_DEFAULT`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `ADDON_GROUP_NOT_FOUND`, `CATEGORY_NOT_EMPTY`, `CATEGORY_LIMIT`, `PRODUCT_LIMIT` and `ADDON_GROUP_LIMIT`, and `SANDBOX_TEST_KEY_REQUIRED` in LettBestilt MCP. See [Errors](/errors).
+
 ## 2026-10-19: Domains, owner invitations, go-live approval, menu import and LettBestilt MCP
 
 **Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed.
