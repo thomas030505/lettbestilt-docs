@@ -6,7 +6,7 @@ subtitle: Create the new key, deploy it, then retire the old one
 Rotate a restaurant key when someone who knew it leaves, when it is about to expire, or as routine. A rotation creates the new key first and keeps the old one working for a grace period, so the site never stops while you deploy.
 
 <Warning>
-If a key has **leaked**, do not rotate with a grace period. Revoke it immediately (**Revoke now** / *Trekk tilbake nå* in the portal, or `graceHours: 0`), then create a new one. A leaked key should not keep working for 24 hours.
+If a key has **leaked**, do not rotate with a grace period. Revoke it immediately (**Revoke now** / *Trekk tilbake nå* in LettBestilt Partner (the partner portal), or `graceHours: 0`), then create a new one. A leaked key should not keep working for 24 hours.
 </Warning>
 
 ## How a rotation works
@@ -28,7 +28,7 @@ If a key has **leaked**, do not rotate with a grace period. Revoke it immediatel
 
 In the partner portal, open the restaurant's API section and choose **Rotate** (*Roter*) on the key. The old key keeps working for 24 hours.
 
-Or with the [partner API](/partner-api), which lets you choose the grace period (0–24 hours) and an expiry date:
+Or with the [LettBestilt Partner API](/partner-api), which lets you choose the grace period (0–24 hours) and an expiry date:
 
 <CodeBlocks>
 ```bash title="cURL"

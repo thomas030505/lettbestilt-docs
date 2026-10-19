@@ -3,7 +3,7 @@ title: Debugging with request IDs
 subtitle: Find out why a call failed without waiting for support
 ---
 
-Every call to `/api/v1` gets a request ID. With it you can find the exact call in the restaurant's API log in the partner portal, see what LettBestilt answered and why, and check the whole integration in one place.
+Every call to `/api/v1` gets a request ID. With it you can find the exact call in the restaurant's API log in LettBestilt Partner (the partner portal), see what LettBestilt answered and why, and check the whole integration in one place.
 
 ## Where the request ID is
 
@@ -67,7 +67,7 @@ The log belongs to one restaurant, so a call only appears when LettBestilt knows
 
 - Calls with a slug that does not exist, or for a real restaurant that is not live yet (they get `404`), are not logged.
 - `GET /orders/{token}`, `GET /openapi.json` and `OPTIONS` preflight requests are not logged.
-- Partner API calls with the partner key alone (list and create restaurants) are not logged. Calls with a restaurant key are logged under that restaurant.
+- LettBestilt Partner API calls with the partner key alone (list and create restaurants) are not logged. Calls with a restaurant key are logged under that restaurant.
 
 Under very heavy traffic the log keeps a sample: successful calls are all logged up to 60 per minute per key, and errors with a valid key up to 300 per minute per key; above that, one in ten. Errors without a valid key are capped, so anonymous traffic cannot flood the log.
 

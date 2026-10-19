@@ -18,7 +18,7 @@ Errors use one envelope:
 }
 ```
 
-Every response, success or error, has an `X-Request-Id` header, and errors repeat it as `error.requestId`. Log it. You can search for it in the restaurant's API log in the partner portal to see what happened, and include it when you contact LettBestilt. See [Debugging with request IDs](/debugging).
+Every response, success or error, has an `X-Request-Id` header, and errors repeat it as `error.requestId`. Log it. You can search for it in the restaurant's API log in LettBestilt Partner (the partner portal) to see what happened, and include it when you contact LettBestilt. See [Debugging with request IDs](/debugging).
 
 Branch on `code`, never on `message`. `message` is written for people and is often in Norwegian; for business rules (sold out, closed, outside the delivery zone) it is usually fine to show the customer as it is. `details` is only present for some codes.
 
@@ -29,7 +29,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `INVALID_JSON` | 400 | The body is not valid JSON |
 | `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | 400 | A return URL is not `https` on a verified domain or lettbestilt.no |
 | `BAD_REQUEST` | 400 | Malformed input, such as an invalid `Idempotency-Key`, or the restaurant is closed or does not offer the chosen fulfillment or payment method |
-| `IDEMPOTENCY_KEY_REQUIRED` | 400 | Partner API: `POST /partner/restaurants` without a valid `Idempotency-Key` |
+| `IDEMPOTENCY_KEY_REQUIRED` | 400 | LettBestilt Partner API: `POST /partner/restaurants` without a valid `Idempotency-Key` |
 | `UNAUTHORIZED` | 401 | Missing, wrong or revoked API key, and the origin is not trusted. Also a partner key (`lbp_…`) on a restaurant endpoint, or keys from different environments in the partner API |
 | `KEY_EXPIRED` | 401 | The key is valid but past its expiry date. Rotate to a new key |
 | `FORBIDDEN` | 403 | Partner API: the request has an `Origin` header. Call it from your server |

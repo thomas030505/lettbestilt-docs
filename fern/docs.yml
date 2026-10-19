@@ -98,13 +98,13 @@ navigation:
       - section: Partners
         skip-slug: true
         contents:
-          - page: Partner API
+          - page: LettBestilt Partner API
             slug: partner-api
             path: ./pages/partner-api.mdx
           - page: From sandbox to live
             slug: sandbox-to-live
             path: ./pages/sandbox-to-live.mdx
-          - page: MCP server for AI tools
+          - page: LettBestilt MCP
             slug: mcp
             path: ./pages/mcp.mdx
           - page: Rotating keys without downtime

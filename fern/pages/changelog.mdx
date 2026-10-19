@@ -5,17 +5,17 @@ subtitle: Changes to the LettBestilt API and the partner tools
 
 Newest first. New fields, endpoints, error codes and events can appear in `/api/v1` at any time, so ignore what you do not recognise.
 
-## 2026-10-19: Domains, owner invitations, go-live approval, menu import and MCP
+## 2026-10-19: Domains, owner invitations, go-live approval, menu import and LettBestilt MCP
 
 **Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed.
 
 ### New
 
-- **[Domains](/partner-api#domains)** in the partner API: add a domain, get the TXT record, verify it yourself and choose the domain for tracking links. The same is on the restaurant's **Domains** tab in the partner portal. LettBestilt no longer has to verify domains for you.
+- **[Domains](/partner-api#domains)** in the LettBestilt Partner API: add a domain, get the TXT record, verify it yourself and choose the domain for tracking links. The same is on the restaurant's **Domains** tab in LettBestilt Partner (the partner portal). LettBestilt no longer has to verify domains for you.
 - **[Owner invitations](/partner-api#inviting-the-owner)**: `POST` and `DELETE …/owner-invite` invite a real restaurant's owner by email. The owner creates their own login, signs the agreements and sets the restaurant live.
 - **[Go-live approval](/partner-api#go-live-approval)**: a real restaurant needs LettBestilt's approval before it goes live for the first time. The owner signs the agreements. LettBestilt approves the restaurant before the owner sets it live. Ask for it in the partner portal, or with `POST …/go-live-review`. `GET /partner/restaurants/{slug}` has new `owner` and `goLive` objects.
 - **[Menu import](/partner-api#menu-import)**: upload a menu as a PDF or photo, check the proposal and import it as a new menu that is turned off.
-- **[MCP server](/mcp)** at `https://www.lettbestilt.no/api/mcp` for AI assistants such as Claude Code and Cursor. With the partner key, an assistant can read a restaurant's setup, create webhooks and domains, ask for go-live approval and place test orders in a sandbox. It cannot touch orders on real restaurants, customer data or keys, and it cannot delete anything. Until live partner keys are available, it works with a test partner key against sandboxes.
+- **[LettBestilt MCP](/mcp)**, the MCP server at `https://www.lettbestilt.no/api/mcp` for AI assistants such as Claude Code and Cursor. With the partner key, an assistant can read a restaurant's setup, create webhooks and domains, ask for go-live approval and place test orders in a sandbox. It cannot touch orders on real restaurants, customer data or keys, and it cannot delete anything. Until live partner keys are available, it works with a test partner key against sandboxes.
 - **Partner team roles.** Test partner keys can be created by the owner, administrators and developers on your partner team; live partner keys only by the owner and administrators.
 
 ### Changed
@@ -32,7 +32,7 @@ Newest first. New fields, endpoints, error codes and events can appear in `/api/
 - **[Campaign tracking](/campaign-tracking).** A script for the restaurant's website, `https://www.lettbestilt.no/sporing/v1.js`, remembers the newsletter campaign a subscriber clicked for 30 days and hands it to the order with `LettBestilt.orderFields()`. Only newsletter subscribers are tracked, and the script sends nothing itself.
 - `attributedCampaignId` in the `ORDER_CREATED` and `ORDER_PAID` webhooks: the campaign the order was credited to, or `null`.
 
-## 2026-10-16: Partner API, scopes and sandbox payments
+## 2026-10-16: LettBestilt Partner API, scopes and sandbox payments
 
 **Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed. Existing keys keep full access, so integrations that work today keep working without changes.
 

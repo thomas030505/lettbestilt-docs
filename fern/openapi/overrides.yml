@@ -51,10 +51,10 @@ tags:
   # index, so every tag above overwrites it and Partner must be listed here.
   - name: Partner
     description: >-
-      The partner API, `/api/v1/partner`. The partner key (`lbp_…`) alone lists
+      The LettBestilt Partner API, `/api/v1/partner`. The partner key (`lbp_…`) alone lists
       and creates restaurants. Everything about one existing restaurant also
       needs that restaurant's own key in `X-LettBestilt-Restaurant-Key`. Server
-      to server only. See the [Partner API guide](/partner-api).
+      to server only. See the [LettBestilt Partner API guide](/partner-api).
 
 paths:
   # ---------------------------------------------------------------------------
@@ -279,7 +279,7 @@ paths:
             lettbestilt.no, on a verified domain of the restaurant or its
             partner, or on a domain LettBestilt has approved; anything else fails
             with `400 INVALID_SUCCESS_URL`. Add and verify a new host on the
-            restaurant's Domains tab in the partner portal, or with
+            restaurant's Domains tab in LettBestilt Partner, or with
             `POST /api/v1/partner/restaurants/{slug}/domains`. If you leave it out,
             the customer returns to `/order/{TOKEN}?payment=success` on the
             restaurant's domain. In a sandbox you can leave it out: the customer
@@ -1066,7 +1066,7 @@ paths:
 
         No contact details, payment status or customer data. Use `GET /partner/restaurants/{slug}` with the restaurant key for details.
 
-        This call is not written to the API log in the partner portal, because it is not about one restaurant.
+        This call is not written to the API log in LettBestilt Partner, because it is not about one restaurant.
       parameters:
         - name: cursor
           in: query
@@ -1108,7 +1108,7 @@ paths:
 
         **`Idempotency-Key` is required** and is scoped per partner for 30 days:
 
-        - Same key, same body: `200` with the same restaurant, `restaurantKey: null`, `replayed: true`, a `message`, and the header `Idempotent-Replayed: true`. The restaurant key is not shown again. If you lost it (for example because the first response never arrived), create a new key for the restaurant in the partner portal.
+        - Same key, same body: `200` with the same restaurant, `restaurantKey: null`, `replayed: true`, a `message`, and the header `Idempotent-Replayed: true`. The restaurant key is not shown again. If you lost it (for example because the first response never arrived), create a new key for the restaurant in LettBestilt Partner.
         - Same key, different body or environment, or a restaurant that has since been deleted or moved: `409 IDEMPOTENCY_CONFLICT`.
 
         A slug that is already taken gives `409 SLUG_TAKEN` and does not count towards the limit. At most 10 creations per hour per partner key, and 20 per partner. Replays do not count.
@@ -1722,7 +1722,7 @@ webhooks:
       summary: Test event (PING)
       description: >-
         Sent only when someone chooses **Send test event** for the webhook in
-        the partner portal, to check that your endpoint receives and verifies
+        LettBestilt Partner, to check that your endpoint receives and verifies
         deliveries. It is signed like every other event, is sent even when the
         webhook is paused, and is never retried. You cannot subscribe to it.
         Answer `2xx` and ignore it, or log it.
@@ -1779,8 +1779,8 @@ components:
       description: >-
         Either this or a trusted browser origin. The restaurant's API key, sent
         as `Authorization: Bearer lbs_…`. Use it from your server only, never
-        in browser code. Keys are created per restaurant in the LettBestilt
-        partner portal: `lbs_test_…` for sandboxes, `lbs_live_…` for live
+        in browser code. Keys are created per restaurant in LettBestilt
+        Partner: `lbs_test_…` for sandboxes, `lbs_live_…` for live
         restaurants. A key can be limited to some scopes; an endpoint outside
         them returns `403 INSUFFICIENT_SCOPE` with the required scope in
         `error.details.requiredScope`. A key can have an expiry date; an expired
@@ -1789,7 +1789,7 @@ components:
     PartnerApiKey:
       description: >-
         The partner key, sent as `Authorization: Bearer lbp_test_…`. Created in
-        the partner portal under **Partner key**. It belongs to the partner, not
+        LettBestilt Partner under **Partner key**. It belongs to the partner, not
         to a restaurant, and only works against `/api/v1/partner`. Server to
         server only: a request with an `Origin` header is rejected with `403
         FORBIDDEN`. A test key sees and creates only sandboxes; live partner
@@ -1806,8 +1806,8 @@ components:
         UNAUTHORIZED`). A slug that does not exist, belongs to another partner
         or does not match the key always gives the same `404
         RESTAURANT_NOT_FOUND`. Older keys without an environment in the prefix
-        (`lbs_<random>`) are not accepted here; rotate them in the partner
-        portal.
+        (`lbs_<random>`) are not accepted here; rotate them in LettBestilt
+        Partner.
     BrowserOrigin:
       description: >-
         Either this or an API key. No key is needed when the request's `Origin`
@@ -1828,7 +1828,7 @@ components:
       description: >-
         `INSUFFICIENT_SCOPE`: the API key does not have the scope this endpoint
         needs. `error.details.requiredScope` names it, for example
-        `orders.create`. Create a key with that access in the partner portal,
+        `orders.create`. Create a key with that access in LettBestilt Partner,
         or use a key with full access.
 
   parameters:
@@ -1845,7 +1845,7 @@ components:
       required: true
       description: >-
         Stable per event and subscription. Retries of the same event, and
-        deliveries sent again with **Resend** in the partner portal, carry the
+        deliveries sent again with **Resend** in LettBestilt Partner, carry the
         same ID, so use it to skip events you have already handled.
       schema:
         type: string
@@ -2369,7 +2369,7 @@ components:
             A real restaurant that has gone live and takes orders. A new real
             restaurant is not live until its owner has signed the agreements,
             LettBestilt has approved it (the partner asks for go-live approval
-            in the partner portal, or with `POST …/{slug}/go-live-review` once
+            in LettBestilt Partner, or with `POST …/{slug}/go-live-review` once
             live partner keys are available) and the owner has set it live.
             Always `false` for sandboxes; they accept test orders in `/api/v1`
             anyway.
@@ -2428,7 +2428,7 @@ components:
           description: >-
             The new restaurant key with full access, in plain text once (`201`).
             `null` on a replay (`200`): the key is never shown again. If you
-            lost it, create a new key for the restaurant in the partner portal.
+            lost it, create a new key for the restaurant in LettBestilt Partner.
         replayed:
           description: "`true` when the response is a replay of the same `Idempotency-Key`."
         message:
@@ -2492,5 +2492,5 @@ components:
             requestId:
               description: >-
                 The same value as the `X-Request-Id` response header. Search for
-                it in the API log in the partner portal, and include it when you
+                it in the API log in LettBestilt Partner, and include it when you
                 contact LettBestilt.

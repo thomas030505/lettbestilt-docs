@@ -1,9 +1,9 @@
 ---
-title: Partner API
+title: LettBestilt Partner API
 subtitle: Create and manage restaurants from your own systems
 ---
 
-The partner API, under `https://www.lettbestilt.no/api/v1/partner`, lets you create sandboxes, read a restaurant's setup, rotate and revoke its keys, manage its webhooks and domains, import its menu from a PDF or photo, invite its owner and ask LettBestilt for go-live approval, without opening the partner portal. Everything it does can also be done in the portal. The same setup is available to AI assistants through the [MCP server](/mcp).
+The LettBestilt Partner API, under `https://www.lettbestilt.no/api/v1/partner`, lets you create sandboxes, read a restaurant's setup, rotate and revoke its keys, manage its webhooks and domains, import its menu from a PDF or photo, invite its owner and ask LettBestilt for go-live approval, without opening LettBestilt Partner (the partner portal). Everything it does can also be done in the portal. The same setup is available to AI assistants through [LettBestilt MCP](/mcp).
 
 <Note>
 Partner keys are test keys for now (`lbp_test_…`). They see and create only sandboxes. Live partner keys are not available yet; until they are, real restaurants are created in the partner portal, and inviting the owner and asking for go-live approval are done there too. The endpoints for real restaurants are described below so you can build against them.

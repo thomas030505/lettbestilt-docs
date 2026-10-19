@@ -3,7 +3,7 @@ title: Authentication
 subtitle: API keys for servers, verified domains for browsers
 ---
 
-Every endpoint except order tracking needs one of two kinds of authentication: an API key, or a request from a trusted browser origin. The [partner API](/partner-api) under `/api/v1/partner` has its own keys, described at the end of this page.
+Every endpoint except order tracking needs one of two kinds of authentication: an API key, or a request from a trusted browser origin. The [LettBestilt Partner API](/partner-api) under `/api/v1/partner` has its own keys, described at the end of this page.
 
 ## Key types
 
@@ -11,8 +11,8 @@ Every endpoint except order tracking needs one of two kinds of authentication: a
 |---|---|---|---|
 | Restaurant key, test | `lbs_test_…` | One sandbox restaurant | `/api/v1` for that sandbox |
 | Restaurant key, live | `lbs_live_…` | One real restaurant | `/api/v1` for that restaurant |
-| Partner key, test | `lbp_test_…` | Your partner account | `/api/v1/partner` and the [MCP server](/mcp), sandboxes only |
-| Partner key, live | `lbp_live_…` | Your partner account | `/api/v1/partner` and the MCP server, real restaurants only. Not available yet |
+| Partner key, test | `lbp_test_…` | Your partner account | `/api/v1/partner` and [LettBestilt MCP](/mcp), sandboxes only |
+| Partner key, live | `lbp_live_…` | Your partner account | `/api/v1/partner` and LettBestilt MCP, real restaurants only. Not available yet |
 
 A test key only ever reaches sandboxes, and a live key only real restaurants. Older restaurant keys that start with just `lbs_` keep working against the restaurant endpoints, but not in the partner API.
 
@@ -24,7 +24,7 @@ Send the restaurant's API key as a bearer token:
 Authorization: Bearer lbs_live_...
 ```
 
-- Keys are created **per restaurant** in the partner portal, on the restaurant's **API** tab. A key only works for that restaurant. When you create a sandbox with the partner API, the response includes its first key.
+- Keys are created **per restaurant** in LettBestilt Partner (the partner portal), on the restaurant's **API** tab. A key only works for that restaurant. When you create a sandbox with the partner API, the response includes its first key.
 - A test key never works against a live restaurant, and the other way round.
 - The full key is shown only once. LettBestilt stores only a hash and cannot show it again.
 - A restaurant can have several active keys. To rotate without downtime, choose **Rotate**: you get a new key, and the old one keeps working for up to 24 hours while you deploy it. **Revoke now** stops a key immediately, for example if it has leaked. See [Rotating keys without downtime](/rotating-keys).
@@ -115,7 +115,7 @@ A verified domain also:
 
 ## Partner keys
 
-The partner key belongs to your partner account, not to a restaurant. Create it in the partner portal under **Settings → Partner key**. The owner, administrators and developers on your partner team can create test partner keys; live keys are for the owner and administrators only. A partner that registered itself can use its keys once LettBestilt has approved the account (`403 PARTNER_NOT_APPROVED` until then). The partner key only works against `/api/v1/partner` and the [MCP server](/mcp):
+The partner key belongs to your partner account, not to a restaurant. Create it in the partner portal under **Settings → Partner key**. The owner, administrators and developers on your partner team can create test partner keys; live keys are for the owner and administrators only. A partner that registered itself can use its keys once LettBestilt has approved the account (`403 PARTNER_NOT_APPROVED` until then). The partner key only works against `/api/v1/partner` and [LettBestilt MCP](/mcp):
 
 ```http
 Authorization: Bearer lbp_test_...
