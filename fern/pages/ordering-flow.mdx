@@ -206,9 +206,11 @@ For your own systems (a back office, a CRM, notifications), subscribe to `ORDER_
 | `409 PAYMENT_PENDING` | Wait a couple of seconds and retry with the **same** key |
 | `409 PAYMENT_INCOMPLETE` | The payment link was never created. Start over with a new key |
 | `422 VALIDATION_FAILED` / `FULFILLMENT_NOT_ALLOWED` | Show `error.message` (Norwegian). The cart or customer details need to change |
-| `400 BAD_REQUEST` | The restaurant is closed at that time, or does not offer the chosen fulfillment or payment method. Show `error.message` |
+| `400 PAYMENT_METHOD_DISABLED` / `ONLINE_PAYMENT_UNAVAILABLE` | The payment method is off, or the restaurant has no online payment yet. Offer another method (read `capabilities.payment`) |
+| `400 DELIVERY_DISABLED` / `PICKUP_DISABLED` | The restaurant does not offer that fulfillment. Show `error.message` |
+| `400 BAD_REQUEST` | The restaurant is closed at that time. Show `error.message` |
 | `429 RATE_LIMITED` | Wait for `Retry-After` seconds |
-| `503 INTERNAL_ERROR` | The payment provider did not answer. Offer to try again with a new key, or to pay in cash |
+| `503 PAYMENT_PROVIDER_UNAVAILABLE` | SagaPay did not answer. The order failed (no `ORDER_CREATED`). Offer to try again with a new key, or to pay in cash |
 | Network error or timeout | Retry with the **same** key |
 
 The full list is in [Errors, rate limits and retries](/errors).

@@ -5,6 +5,21 @@ subtitle: Changes to the LettBestilt API and the partner tools
 
 Newest first. New fields, endpoints, error codes and events can appear in `/api/v1` at any time, so ignore what you do not recognise.
 
+## 2026-10-20: Payment setup state, order error codes and the PAYMENT_SETUP_UPDATED webhook
+
+No endpoint, field or event was removed or renamed. **One change can affect you:** some error codes on `POST /api/v1/orders` are new (see Changed). The HTTP statuses are the same.
+
+### New
+
+- **`WAITING_FOR_OWNER`** in `payment.state` on `GET /api/v1/partner/restaurants/{slug}`: the SagaPay application is with the owner (registration with BankID, signing or more information). Before, this was `IN_PROGRESS`, the same as when SagaPay was setting up the payment. See [Partner API](/partner-api).
+- **[`PAYMENT_SETUP_UPDATED`](/api-reference/webhooks/payment-setup-updated)**: a webhook when `payment.state` changes, with `restaurantSlug`, `payment` and `previousState`. Subscribe to it on the restaurant's webhook to remind the owner while the application waits for them.
+- **Return URLs in a sandbox**: `successUrl` and `cancelUrl` may point to `localhost`, `127.0.0.1`, `[::1]` or `https` `*.vercel.app` when the restaurant is a sandbox. See [Payments](/payments#return-urls).
+
+### Changed
+
+- **Error codes on `POST /api/v1/orders`.** A rejection caused by the restaurant's setup now has its own code: `PAYMENT_METHOD_DISABLED`, `ONLINE_PAYMENT_UNAVAILABLE` (no active SagaPay yet), `DELIVERY_DISABLED` and `PICKUP_DISABLED`, all `400` and before `BAD_REQUEST`. A closed restaurant is still `400 BAD_REQUEST`. SagaPay not answering is `503 PAYMENT_PROVIDER_UNAVAILABLE`, before `503 INTERNAL_ERROR`. If you compare `error.code` with `BAD_REQUEST` or `INTERNAL_ERROR` here, add the new codes. See [Errors](/errors).
+- **`ORDER_CREATED` for an online order is sent once SagaPay has created the payment page.** If SagaPay cannot create it, `POST /api/v1/orders` answers `503` as before, the order fails, no event is sent, and a coupon used on it can be used again. Retrying with the same `Idempotency-Key` gives `409 PAYMENT_INCOMPLETE` at once: start a new order with a new key.
+
 ## 2026-10-20: Set up a restaurant through the API, and LettBestilt MCP configuration tools
 
 **Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed.

@@ -979,7 +979,9 @@ webhooks:
       description: >-
         Sent when a new takeaway order is created. Online orders are sent while they still wait for payment
         (`status: "AWAITING_PAYMENT"`); `ORDER_PAID` follows when the payment is confirmed. If the customer
-        never pays, no further event is sent. Cash orders arrive as `CONFIRMED`.
+        never pays, no further event is sent. Cash orders arrive as `CONFIRMED`. An online order is sent once
+        SagaPay has created the payment page; if SagaPay cannot, the order fails, the API answers `503`, and
+        no event is sent.
 
 
         `estimatedReadyAt` is the kitchen's estimate including rush, and `requestedPickupAt` is the agreed
@@ -1306,6 +1308,57 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
+  paymentSetupUpdated:
+    post:
+      operationId: paymentSetupUpdated
+      tags:
+        - Webhooks
+      summary: Payment setup updated
+      description: >-
+        Sent when the state of the restaurant's online payment setup (SagaPay) changes, for example from
+        `WAITING_FOR_OWNER` to `IN_PROGRESS` when the owner has signed, or to `ACTIVE` when online payment
+        works. `payment` has the same form as `payment` in `GET /api/v1/partner/restaurants/{slug}`. Use
+        `WAITING_FOR_OWNER` to remind the owner: only the owner can finish the registration with BankID.
+        Never sent for sandboxes, and never for internal SagaPay steps that keep the same state.
+      parameters:
+        - $ref: "#/components/parameters/WebhookIdHeader"
+        - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
+        - $ref: "#/components/parameters/WebhookTimestampHeader"
+        - $ref: "#/components/parameters/WebhookSignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - event
+                - createdAt
+                - data
+              properties:
+                event:
+                  type: string
+                  enum:
+                    - PAYMENT_SETUP_UPDATED
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the event happened (ISO 8601, UTC).
+                data:
+                  $ref: "#/components/schemas/PaymentSetupUpdatedData"
+            example:
+              event: PAYMENT_SETUP_UPDATED
+              createdAt: "2026-10-20T10:31:00.000Z"
+              data:
+                restaurantSlug: pizzeria-napoli
+                payment:
+                  state: WAITING_FOR_OWNER
+                  label: Venter på eieren
+                  description: Venter på at eieren fullfører registreringen hos SagaPay med BankID. Det kan bare eieren gjøre.
+                previousState: NOT_STARTED
+      responses:
+        "200":
+          description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
   ping:
     post:
       operationId: ping
@@ -1604,6 +1657,45 @@ components:
             - string
             - "null"
           description: The reason the restaurant gave, or `null`.
+    PaymentSetupUpdatedData:
+      type: object
+      description: The `data` of a `PAYMENT_SETUP_UPDATED` event. No personal data.
+      required:
+        - restaurantSlug
+        - payment
+        - previousState
+      properties:
+        restaurantSlug:
+          type: string
+        payment:
+          type: object
+          required:
+            - state
+            - label
+            - description
+          properties:
+            state:
+              type: string
+              enum:
+                - NOT_STARTED
+                - WAITING_FOR_OWNER
+                - IN_PROGRESS
+                - ACTIVE
+                - FAILED
+            label:
+              type: string
+              description: Short Norwegian label, for example «Venter på eieren».
+            description:
+              type: string
+              description: One Norwegian sentence on what happens and who acts next.
+        previousState:
+          type: string
+          enum:
+            - NOT_STARTED
+            - WAITING_FOR_OWNER
+            - IN_PROGRESS
+            - ACTIVE
+            - FAILED
     OrderStatusChangeData:
       type: object
       description: The `data` of an `ORDER_STATUS_CHANGED` or `ORDER_CANCELLED` event.
