@@ -37,6 +37,10 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PARTNER_AGREEMENT_REQUIRED` | 403 | Partner API with a live partner key: the partner agreements are not signed |
 | `PARTNER_NOT_APPROVED` | 403 | Partner API: your partner account registered itself and LettBestilt has not approved it yet. You get an email when it is approved |
 | `PARTNER_DATA_LOCKED` | 403 | Partner API: the real restaurant's owner has not signed the customer agreement and the data processing agreement yet. Webhooks carry customer data, so they can only be added after that |
+| `KEY_ROLE_FORBIDDEN` | 403 | Partner API: the partner key's creator is no longer an owner or administrator, so the key can read but not change your brand, profile or news. `details.capability` says which access is missing. A rotated key counts as created by the person who rotated it |
+| `WHITE_LABEL_REQUIRED` | 403 | Partner API: hiding "Drevet av LettBestilt", a sender domain, or dashboard colours and font need white label in the partner agreement |
+| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website or a logo link, or publish news to real restaurants |
+| `PARTNER_NEWS_FORBIDDEN` | 403 | Partner API: only external partners send news to their restaurants |
 | `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug. In the partner API also when the slug belongs to another partner or does not match the restaurant key |
 | `KEY_NOT_FOUND` | 404 | Partner API: the key does not belong to the restaurant, or is already revoked |
 | `WEBHOOK_NOT_FOUND` | 404 | Partner API: the webhook does not belong to the restaurant |
@@ -49,14 +53,9 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `CATEGORY_NOT_FOUND` | 404 | Partner API: the category does not belong to the restaurant |
 | `PRODUCT_NOT_FOUND` | 404 | Partner API: the product does not belong to the restaurant |
 | `ADDON_GROUP_NOT_FOUND` | 404 | Partner API: the addon group does not belong to the restaurant |
+| `NEWS_NOT_FOUND` | 404 | Partner API: the news item does not exist, belongs to another partner or is outside the key's environment |
 | `ORDER_NOT_FOUND` | 404 | No order has this token |
 | `POPUP_NOT_AVAILABLE` | 404 | Newsletter signup is turned off for the restaurant |
-| `HOURS_OVERRIDE_NOT_FOUND` | 404 | Partner API: the opening hours override does not belong to the restaurant |
-| `DELIVERY_ZONE_NOT_FOUND` | 404 | Partner API: the delivery zone does not belong to the restaurant |
-| `MENU_NOT_FOUND` | 404 | Partner API: the menu does not belong to the restaurant |
-| `CATEGORY_NOT_FOUND` | 404 | Partner API: the category does not belong to the restaurant |
-| `PRODUCT_NOT_FOUND` | 404 | Partner API: the product does not belong to the restaurant |
-| `ADDON_GROUP_NOT_FOUND` | 404 | Partner API: the addon group does not belong to the restaurant |
 | `PRICE_CHANGED` | 409 | You sent `expectedTotal` and the server's total is higher. `details` has `expectedTotal`, `actualTotal` and `currency` |
 | `PAYMENT_PENDING` | 409 | The order exists but its payment link is still being created. Retry shortly with the same key |
 | `PAYMENT_INCOMPLETE` | 409 | The order exists but never got a payment link. Start a new order |
@@ -81,20 +80,23 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `LEGAL_LOCKED` | 409 | Partner API: a legal field (organisation number, legal name, legal address) would get a new value after the owner signed the customer agreement. `details.fields` lists them |
 | `DEMO_RESTAURANT` | 409 | Partner API: LettBestilt's demo restaurant can be read, but not changed |
 | `DELIVERY_ZONE_LIMIT` | 409 | Partner API: the restaurant already has 50 delivery zones |
+| `HOURS_OVERRIDE_LIMIT` | 409 | Partner API: the restaurant already has 200 opening hours overrides. Delete old ones before you add new ones |
 | `MENU_IS_DEFAULT` | 409 | Partner API: the default menu cannot be deleted. Make another menu the default first |
 | `CATEGORY_NOT_EMPTY` | 409 | Partner API: the category still has active products or subcategories |
 | `CATEGORY_LIMIT` | 409 | Partner API: the restaurant already has 60 categories |
-| `PRODUCT_LIMIT` | 409 | Partner API: the restaurant would get more than 800 active or 2000 products in all |
+| `PRODUCT_LIMIT` | 409 | Partner API: the restaurant would get more than 800 active or 2000 products in all, also when committing a menu import |
 | `ADDON_GROUP_LIMIT` | 409 | Partner API: the restaurant already has 100 addon groups |
-| `LEGAL_LOCKED` | 409 | Partner API: a legal field (organisation number, legal name, legal address) would get a new value after the owner signed the customer agreement. `details.fields` lists them |
-| `DEMO_RESTAURANT` | 409 | Partner API: LettBestilt's demo restaurant can be read, but not changed |
-| `DELIVERY_ZONE_LIMIT` | 409 | Partner API: the restaurant already has 50 delivery zones |
-| `MENU_IS_DEFAULT` | 409 | Partner API: the default menu cannot be deleted. Make another menu the default first |
-| `CATEGORY_NOT_EMPTY` | 409 | Partner API: the category still has active products or subcategories |
-| `CATEGORY_LIMIT` | 409 | Partner API: the restaurant already has 60 categories |
-| `PRODUCT_LIMIT` | 409 | Partner API: the restaurant would get more than 800 active or 2000 products in all |
-| `ADDON_GROUP_LIMIT` | 409 | Partner API: the restaurant already has 100 addon groups |
+| `PARTNER_ARCHIVED` | 409 | Partner API: the partner is suspended or archived, so its profile, sender domain and news cannot be changed |
+| `NOT_DRAFT` | 409 | Partner API: only a news draft can be changed, deleted or scheduled |
+| `NOT_PUBLISHED` | 409 | Partner API: only a published news item can be archived |
+| `NOT_SCHEDULED` | 409 | Partner API: only a scheduled news item can be unscheduled |
+| `NOT_CLAIMABLE` | 409 | Partner API: the news item is already published or archived |
+| `SENDER_DOMAIN_ALREADY_SET` | 409 | Partner API: you already have a sender domain; remove it before you add another |
+| `SENDER_DOMAIN_NOT_SET` | 409 | Partner API: you have no sender domain to check or remove |
+| `DOMAIN_EXISTS` | 409 | Partner API: the domain is already used for e-mail at LettBestilt |
+| `LENGTH_REQUIRED` | 411 | Partner API: a logo upload has no `Content-Length` |
 | `PDF_TOO_LARGE` | 413 | Partner API, menu import: the file (PDF or image) is larger than 4 MB |
+| `FILE_TOO_LARGE` | 413 | Partner API: the logo is over 2 MB |
 | `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
 | `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |
 | `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY` | 422 | Reservation rejections. See [Table reservations](/reservations) |
@@ -114,11 +116,17 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PDF_PARSE_TIMEOUT` | 422 | Partner API, menu import: reading the menu took too long. Try again, or split the menu into smaller files |
 | `MENU_IMPORT_TOO_BIG` | 422 | Partner API, menu import: the menu is too large to read in one go. Split it into smaller files |
 | `MENU_IMPORT_EMPTY` | 422 | Partner API, menu import: no dishes with prices were found in the file |
+| `LOGO_NOT_ALLOWED` | 422 | Partner API: `logoUrl` or `logoLightUrl` is not a file uploaded to LettBestilt |
+| `IMAGE_NOT_ALLOWED` | 422 | Partner API: an image in a news item was not uploaded to LettBestilt |
+| `NO_RECIPIENTS` | 422 | Partner API: none of the news item's recipients can be reached now |
+| `SENDER_DOMAIN_REJECTED` | 422 | Partner API: the e-mail service did not accept the domain or the call |
 | `RATE_LIMITED` | 429 | Too many requests. See `Retry-After` |
 | `MENU_IMPORT_AI_LIMIT` | 429 | Partner API, menu import: the cap on readings with the language model is reached (20 per restaurant per 24 hours, plus an overall cap per hour). Only images and scanned PDFs get this code; a PDF with text is read by the fallback parser instead. Try again later |
 | `PAYMENT_PROVIDER_INVALID` | 502 | The payment provider returned an unusable payment link |
 | `INVITE_SEND_FAILED` | 502 | Partner API: the owner invitation is saved, but the email did not go out. Send the same call again shortly |
+| `UPLOAD_FAILED` | 502 | Partner API: the logo could not be stored right now. Try again |
 | `MENU_IMPORT_UNAVAILABLE` | 503 | Partner API, menu import: the language model did not answer, and an image or scanned PDF has no fallback. Try again shortly |
+| `EMAIL_SERVICE_UNAVAILABLE` | 503 | Partner API: the e-mail service did not answer. Try again in a moment |
 | `INTERNAL_ERROR` | 5xx | Something failed on our side or at a provider. `503` on order creation means the payment provider did not answer |
 
 One exception to the envelope: `409 ONLINE_BOOKING_CLOSED` from `POST /reservations` uses a flat shape, `{ "error": "…", "code": "ONLINE_BOOKING_CLOSED" }`.
