@@ -92,10 +92,12 @@ Rules worth knowing:
 - `slug`, `email`, `storefrontEnabled`, the font, invoicing, agreements, payment and printers cannot be changed through the API (`422`, "Feltet kan ikke endres via API-et").
 - `latitude` and `longitude` go together: both or neither.
 - `logoUrl` and `coverImageUrl` must be files uploaded to LettBestilt. Any other address gives `422`. A value that is already stored is accepted, so a round trip from `GET` works.
-- `googleReviewUrl` must be `https`.
+- `googleReviewUrl` must be `https`. Links (`website`, `googleReviewUrl`, `logoUrl`, `coverImageUrl`) are at most 2048 characters.
+- Through [LettBestilt MCP](/mcp), `website` and `googleReviewUrl` on a real restaurant that is live give `403 HUMAN_REQUIRED`: a person changes them, in the dashboard, in LettBestilt Partner or with this endpoint.
 - At least one of `pickupEnabled` and `deliveryEnabled` must stay `true`.
 - Free text (`name`, `description`, `cuisineType` and the texts on the tracking page and the receipt) is cleaned like menu text: links, email addresses, HTML and invisible direction marks are removed. When something was removed, the response has `textCleaned` with the number of fields.
 - **Legal fields** (`orgNumber`, `legalName`, `addressLine1`, `postalCode`, `city`) go into the customer agreement. You can change them until the owner has signed it. After that, a new value gives `409 LEGAL_LOCKED` with the fields in `error.details.fields`; the same value as stored is accepted. The lock applies in the restaurant dashboard too, so the owner sees the same rule. The visiting address (`publicAddressLine1`, `publicPostalCode`, `publicCity`) and the coordinates can always be changed. `orgNumber` must have a valid check digit (mod 11).
+- **When the owner needs new legal details after signing** (a new legal address, name or organisation number), ask the owner to contact you, and contact LettBestilt at support@lettbestilt.no. LettBestilt changes them; no endpoint, MCP tool or dashboard form can.
 
 ## 3. Opening hours
 
@@ -116,8 +118,8 @@ curl -X PUT "$API/$SLUG/hours" "${AUTH[@]}" \
   }'
 ```
 
-- Times are `HH:MM` in Norwegian time (Europe/Oslo). Each weekday at most once.
-- `closesAt` before `opensAt` (for example `18:00` to `02:00`) means open 00:00–02:00 and 18:00–24:00 **on the same weekday**, not a window into the next day. To stay open past midnight on Friday, give Saturday its own early window.
+- Times are `HH:MM` in Norwegian time (Europe/Oslo). Each weekday at most once. An open day where `opensAt` equals `closesAt` gives `422`.
+- **A window over midnight only applies to that day's row.** `closesAt` before `opensAt`, for example `FRIDAY` 23:00–02:00, means open 00:00–02:00 and 23:00–24:00 **on Friday**, not Friday night into Saturday. To stay open until 02:00 after Friday, put those hours on Saturday's row: `SATURDAY` 13:00–02:00 means open 00:00–02:00 and 13:00–24:00 on Saturday.
 - The week has no `updatedAt`, so `PUT` takes no `expectedUpdatedAt` (it gives `422`). Two saves at the same time run one after the other and the last one wins. The same week twice is a no-op.
 - Setting the hours does not tick off the opening hours step in the owner's **Get started** (*Kom i gang*); the owner confirms that.
 
@@ -130,7 +132,7 @@ curl -X POST "$API/$SLUG/hours/overrides" "${AUTH[@]}" \
 ```
 
 - Dates are `YYYY-MM-DD` in Norwegian time, and `endDate` is **inclusive**.
-- An open override (`isClosed: false`) needs both `opensAt` and `closesAt`.
+- An open override (`isClosed: false`) needs both `opensAt` and `closesAt`, and they cannot be equal (`422`).
 - `PATCH …/hours/overrides/{overrideId}` changes the fields you send. To end an override early, set `endDate` to the last day it should still apply (`endDate` is inclusive, so today means it still applies for the rest of today). An override that has not started yet is removed with `DELETE`.
 - A restaurant has at most 200 overrides (`409 HOURS_OVERRIDE_LIMIT`). Delete old ones before you add new ones.
 - Send `expectedUpdatedAt` (the `updatedAt` you read) with `PATCH` to get `409 CHANGED` instead of overwriting a change made in between.
@@ -152,7 +154,7 @@ curl -X POST "$API/$SLUG/delivery-zones" "${AUTH[@]}" \
 ```
 
 - Amounts are integers in øre (`4900` = 49 kr). `estimatedMinutes` is 0–240, `radiusKm` above 0 and at most 100.
-- Postal codes are four digits. A `POSTAL_CODES` zone needs at least one; a `RADIUS` zone needs `centerLat`, `centerLng` and `radiusKm`.
+- Postal codes are four digits. A `POSTAL_CODES` zone needs at least one; a `RADIUS` zone needs `centerLat`, `centerLng` and `radiusKm`. Fields for the other type (`postalCodes` on a `RADIUS` zone, or a centre or radius on a `POSTAL_CODES` zone) give `422`, both when you create and when you change a zone; an empty list or `null` is fine.
 - `PATCH …/delivery-zones/{zoneId}` changes the fields you send, and checks the result: changing `type` to `RADIUS` without a centre gives `422` with the path `centerLat`.
 - Turn a zone off with `{ "isActive": false }`. If it was the last active zone, delivery stops without a warning while `deliveryEnabled` is still `true`.
 - A restaurant can have up to 50 zones (`409 DELIVERY_ZONE_LIMIT`).
@@ -183,18 +185,19 @@ curl -X POST "$API/$SLUG/menus" "${AUTH[@]}" \
   }'
 ```
 
-- A product has either `price` or `variants`; the first variant becomes the default. At most 60 categories, 800 products and 8 variants per product.
+- A product has either `price` or `variants`; the first variant becomes the default. At most 60 categories (per menu), 800 products and 8 variants per product.
+- A price above 0 and under 500 øre (5 kr) looks like kroner. It is saved, and the response has an entry in `warnings` (`{ path, message }`, with the path to the price in the proposal). Check it against the menu.
 - The proposal has the same limits as menu import: a price is at most 1 000 000 øre (10 000 kr) and a product name at most 195 characters. Products created or changed one by one (`…/products`, `…/products/batch`) take prices up to 10 000 000 øre (100 000 kr) and names up to 200 characters. Allergen codes are the EU codes in the API reference (`WHEAT`, `MILK`, `EGGS` …).
 - Names and descriptions are cleaned like menu import: links, email addresses, HTML and invisible direction marks are removed, and `textCleaned` in the response says how many were changed.
 - **Not idempotent.** A retry after a lost response can create a second menu. Check `GET …/menus` before you try again, and delete the extra one.
 - No existing menu is changed.
-- Every product in the proposal is active and counts against the restaurant's product limit (800 active, 2000 in all): over it, `409 PRODUCT_LIMIT` and nothing is created. The same applies when you commit a menu import (`POST …/menu-imports/{importId}/commit`).
+- Every product in the proposal is active and counts against the restaurant's product limit (800 active, 2000 in all): over it, `409 PRODUCT_LIMIT` and nothing is created. The same applies when you commit a menu import (`POST …/menu-imports/{importId}/commit`), which also cleans the text like this endpoint (line breaks in descriptions are kept) and gives `409 DEMO_RESTAURANT` on LettBestilt's demo restaurant.
 
 `GET …/menus` lists every menu with its schedule, counts and `isLiveNow` (whether customers see it right now). `GET …/menus/{menuId}` returns the whole menu in the same shape as `GET /api/v1/menu`, also when it is turned off, including inactive categories and products.
 
 ### Edit the menu piece by piece
 
-To add to a menu, or change it later, work on its categories, products and addon groups one at a time. The ids are in `GET …/menus/{menuId}`, and the addon groups in `GET …/addon-groups`. Every create and change (`POST`, `PATCH`) answers with the object as it is now, `textCleaned`, and a `notice` (about the cache, and anything the change left incomplete). `DELETE` answers with `id`, `deleted` and `soft`.
+To add to a menu, or change it later, work on its categories, products and addon groups one at a time. The ids are in `GET …/menus/{menuId}`, and the addon groups in `GET …/addon-groups`. Every create and change (`POST`, `PATCH`) answers with the object as it is now, `textCleaned`, `warnings` (a list of `{ path, message }`, empty when there is nothing to say) and a `notice` (about the cache, and anything the change left incomplete). `DELETE` answers with `id`, `deleted`, `soft` and, when there is something to say, `notice`.
 
 ```bash
 curl -X POST "$API/$SLUG/menus/$MENU_ID/categories" "${AUTH[@]}" \
@@ -211,21 +214,23 @@ curl -X POST "$API/$SLUG/categories/$CATEGORY_ID/products" "${AUTH[@]}" \
   }'
 ```
 
-- **Categories** have `name`, `description`, `sortOrder` and `isActive`.
-- **Products** have `name`, `description`, `basePrice` (øre; needed without sizes, otherwise the default size's price), `variants` (sizes, up to 8, at most one `isDefault`), `allergens`, `isVegan`, `isVegetarian`, `isPopular`, `allowedFulfillment` (`PICKUP`, `DELIVERY` or `null` for both), `isActive` and `isAvailable` (`false` = sold out). New ones can be created hidden with `isActive: false`.
+- **Categories** have `name`, `description`, `sortOrder` and `isActive`. A menu has at most 60 categories, subcategories included (`409 CATEGORY_LIMIT`).
+- **Products** have `name`, `description`, `basePrice` (øre; needed without sizes, otherwise the default size's price), `variants` (sizes, up to 8, at most one `isDefault`), `allergens`, `isVegan`, `isVegetarian`, `isPopular`, `allowedFulfillment` (`PICKUP`, `DELIVERY` or `null` for both), `isActive` and `isAvailable` (`false` = sold out). New ones can be created hidden with `isActive: false`. A price above 0 and under 500 øre gives a warning in `warnings` (it is saved).
 - **`POST …/products/batch`** creates 1–50 products in one call, each with its own `categoryId`. It is all or nothing: one invalid product (for example a `categoryId` from another menu, path `products.2.categoryId`) and none are created. Split larger menus into several calls.
-- **Addon groups** have `name`, `scope` (`GLOBAL` for every product, `CATEGORY` with `categoryId`, or `PRODUCT` with `productIds`), `minSelect`, `maxSelect`, `isRequired` and up to 20 `addons` (`name`, `price` in øre, `isAvailable`). Without `isRequired`, a group is required when `minSelect` is above 0, and `isRequired` must agree with `minSelect` (true exactly when it is above 0). `minSelect` above the number of available addons gives `422`, since no customer could order the product. A required `GLOBAL` group applies to every product in the restaurant, so the response has a warning in `warnings`.
+- **Addon groups** have `name`, `scope` (`GLOBAL` for every product, `CATEGORY` with `categoryId`, or `PRODUCT` with `productIds`), `minSelect`, `maxSelect`, `isRequired` and up to 20 `addons` (`name`, `price` in øre, `isAvailable`). Without `isRequired`, a group is required when `minSelect` is above 0, and `isRequired` must agree with `minSelect` (true exactly when it is above 0). `minSelect` above the number of available addons gives `422`, since no customer could order the product. A required `GLOBAL` group applies to every product in the restaurant, so the response has a warning in `warnings` (path `scope`).
 
-**Send the ids back when you change sizes or addons.** `variants` on a product and `addons` on a group are replaced as a set. A row with the `id` you read is updated in place; a row without `id` is new and gets a new id; a row you leave out is deleted. Through [LettBestilt MCP](/mcp) a set that would delete an existing size or addon gives `422 VALIDATION_FAILED` instead (path `variants` or `addons`): an AI tool never removes them, a person does, in the dashboard or with these endpoints. Keep the ids: a customer's basket on the website holds the size and addon ids from the cached menu, so new ids can make orders fail for up to five minutes. Sizes also keep their `addonTierKey`, and addons their size prices, only when you send the id.
+**Send the ids back when you change sizes or addons.** `variants` on a product and `addons` on a group are replaced as a set. A row with the `id` you read is updated in place; a row without `id` is new and gets a new id; a row you leave out is deleted. Through [LettBestilt MCP](/mcp) a set that would delete an existing size or addon gives `422 VALIDATION_FAILED` instead (path `variants` or `addons`): an AI tool never removes them, a person does, in the dashboard or with these endpoints. Keep the ids: a customer's basket on the website holds the size and addon ids from the cached menu, so new ids can make orders fail for up to six minutes. Sizes also keep their `addonTierKey`, and addons their size prices, only when you send the id.
+
+**Send `expectedVersion` when you change a product or an addon group.** Every product and addon group in `GET …/menus/{menuId}` and `GET …/addon-groups` has a `version` (16 hex characters), and so does every write response. `PATCH …/products/{productId}` and `PATCH …/addon-groups/{groupId}` take it as `expectedVersion`; when the row, its sizes or its addons changed after you read them, you get `409 CHANGED` and nothing is saved. Read again and retry. Without `expectedVersion`, a change the owner made a minute ago can be overwritten.
 
 Rules worth knowing:
 
 - **Size prices for addons cannot be set through the API.** The API has no `tiers` or `tierPrices`. A new addon in a group that has sizes costs the same for every size, and a new size without `addonTierKey` gives addons their base price. `notice` says when that happens; set size prices in the dashboard.
-- **Images:** `imageUrl` (on `PATCH …/products/{productId}`) takes an image from LettBestilt's image library or one uploaded to LettBestilt, the value already stored, or `null` to remove it. Any other address gives `422`. `imageIsStock` follows the image: `true` for an image from the library, `false` for your own photo or no image. When it is `true`, the website must show "Illustrasjonsfoto" next to it (Norwegian marketing law).
+- **Images:** `imageUrl` (on `PATCH …/products/{productId}`) takes an `https` image from LettBestilt's image library (only images that are still active) or one uploaded to LettBestilt, the value already stored, or `null` to remove it. Any other address gives `422`. `imageIsStock` follows the image: `true` for an image from the library, `false` for your own photo or no image. When it is `true`, the website must show "Illustrasjonsfoto" next to it (Norwegian marketing law).
 - **Deleting a category** with active products or subcategories gives `409 CATEGORY_NOT_EMPTY`: turn the products off or delete them first. A category whose inactive products have order history is turned off instead (`soft: true`). Its `CATEGORY` addon groups go with it (`removedAddonGroupIds`).
-- **Deleting a product** with order history turns it off instead (`soft: true`), so old orders keep it.
-- **Limits per restaurant:** 60 categories (`409 CATEGORY_LIMIT`), 800 active products and 2000 in all, also inactive ones (`409 PRODUCT_LIMIT`, also when an inactive product is turned on again), and 100 addon groups (`409 ADDON_GROUP_LIMIT`). Prices are at most 10 000 000 øre (100 000 kr), and product names at most 200 characters; a proposal in `POST …/menus` allows 10 000 kr and 195 characters.
-- Categories, products and addon groups have no `updatedAt`. Like menus, the write only goes through if the row is as it was when the API read it; `expectedUpdatedAt` is not accepted (`422`).
+- **Deleting a product** with order history turns it off instead (`soft: true`), so old orders keep it. A product that is part of a combo or in upsell is turned off instead (`soft: true`), and `notice` says where it is used.
+- **Limits:** 60 categories per menu (`409 CATEGORY_LIMIT`, also in `POST …/menus` and when committing a menu import), and per restaurant 800 active products and 2000 in all, also inactive ones (`409 PRODUCT_LIMIT`, also when an inactive product is turned on again), and 100 addon groups (`409 ADDON_GROUP_LIMIT`). Prices are at most 10 000 000 øre (100 000 kr), and product names at most 200 characters; a proposal in `POST …/menus` allows 10 000 kr and 195 characters.
+- Categories, products and addon groups have no `updatedAt`. Like menus, the write only goes through if the row is as it was when the API read it; `expectedUpdatedAt` is not accepted (`422`). Products and addon groups take `expectedVersion` (above) to guard against a change made since **you** read them.
 - Combo products, the image library itself (search and upload), upsell and the order of menus and categories are done in the dashboard.
 
 ## 6. Publish the menu
@@ -252,7 +257,7 @@ A menu with dates but without `isDefault` or a schedule is never shown while ano
 
 - `warnings` in the response says when no menu is visible afterwards, or when another menu becomes visible. `notice` explains how the menu now shows.
 - `{ "isActive": false }` takes a menu out of service.
-- `GET /api/v1/menu` is cached for up to five minutes, so the website can show the old menu for a while.
+- `GET /api/v1/menu` is cached for up to six minutes (30 seconds, then up to five more while it is refreshed), so the website can show the old menu for a while. Every write response that changes what customers see says so in `notice`.
 
 `DELETE …/menus/{menuId}` deletes a menu that is not the default (`409 MENU_IS_DEFAULT`: make another menu the default first). A menu whose products have order history is turned off instead (`soft: true`), so old orders keep their products.
 
@@ -285,6 +290,10 @@ PARTNER="https://www.lettbestilt.no/api/v1/partner"
 PAUTH=(-H "Authorization: Bearer $LETTBESTILT_PARTNER_KEY")
 ```
 
+<Warning>
+Your brand, profile and sender domain belong to you as a partner, not to an environment. A test key changes what real restaurant owners see, also while LettBestilt Partner is closed. Only news is bound to the key's environment.
+</Warning>
+
 **Who the key is.** Reading needs no role. Every change needs a partner key **created by an owner or administrator** on your partner team (or by LettBestilt), and that person must still have the access in the portal. A key created by a developer, support or read-only member gets `403 KEY_ROLE_FORBIDDEN` with the access in `error.details.capability` (`brand.manage`, `profile.manage` or `news.manage`). Create a new partner key as an owner or administrator under **Innstillinger → Partnernøkkel (API)**. A rotated key counts as created by the person who rotated it, so a developer who rotates the owner's key gets `403 KEY_ROLE_FORBIDDEN` on brand, profile and news; LettBestilt Partner shows per key whether it can change the partner's own settings.
 
 ### Your account
@@ -309,7 +318,7 @@ curl -X PATCH "$PARTNER/brand" "${PAUTH[@]}" \
   }'
 ```
 
-A new logo is uploaded as a file, never as a link to an image somewhere else (`422 LOGO_NOT_ALLOWED`). `POST /brand/logo` takes `multipart/form-data` with the field `file`: PNG, JPEG or WebP, at most 2 MB, read from the file's bytes. It stores the logo as `logoUrl` in the same call and returns the brand. The request needs a `Content-Length` (`411 LENGTH_REQUIRED`), and takes an optional text field `expectedUpdatedAt`. At most 10 logo uploads per hour per partner, for both logos together, shared with LettBestilt MCP.
+A new logo is uploaded as a file, never as a link to an image somewhere else (`422 LOGO_NOT_ALLOWED`, with the field in `error.details.field`). `POST /brand/logo` takes `multipart/form-data` with the field `file`: PNG, JPEG or WebP, at most 2 MB, read from the file's bytes. It stores the logo as `logoUrl` in the same call and returns the brand. The request needs a `Content-Length` (`411 LENGTH_REQUIRED`), and takes an optional text field `expectedUpdatedAt`. At most 10 logo uploads per hour per partner, for both logos together, shared with LettBestilt MCP. A new logo replaces the previous one, and the previous file is deleted only when LettBestilt has a record that you uploaded it; otherwise it stays.
 
 ```bash
 curl -X POST "$PARTNER/brand/logo" "${PAUTH[@]}" -F "file=@logo.png"
@@ -331,7 +340,7 @@ curl -X PATCH "$PARTNER/brand" "${PAUTH[@]}" \
 
 ### Sender domain
 
-With white label, e-mail to your restaurant owners can go from your own domain (`noreply@post.yourcompany.no`). `POST /brand/sender-domain` with `{ "domain": "post.yourcompany.no" }` registers it and returns `201` with the DNS records to create at your DNS provider (`records[]` with `type`, `name`, `fullName`, `value` and `status`). Then `POST /brand/sender-domain/verify` checks them again. `status` is `NOT_STARTED`, `PENDING`, `VERIFIED` or `FAILED`; e-mail goes from your domain only when it is `VERIFIED`. `DELETE /brand/sender-domain` removes it, also without white label. At most 10 changes per hour and 10 checks per 10 minutes per partner, shared with the portal.
+With white label, e-mail to your restaurant owners can go from your own domain (`noreply@post.yourcompany.no`). `POST /brand/sender-domain` with `{ "domain": "post.yourcompany.no" }` registers it and returns `201` with the DNS records to create at your DNS provider (`records[]` with `type`, `name`, `fullName`, `value` and `status`). Then `POST /brand/sender-domain/verify` checks them again. `status` is `NOT_STARTED`, `PENDING`, `VERIFIED` or `FAILED`; e-mail goes from your domain only when it is `VERIFIED`. `DELETE /brand/sender-domain` removes it, also without white label. Free e-mail services (such as `gmail.com`) cannot be registered. At most 10 changes per hour and 10 checks per 10 minutes per partner, shared with the portal.
 
 ```bash
 curl -X POST "$PARTNER/brand/sender-domain" "${PAUTH[@]}" \
@@ -381,13 +390,13 @@ curl -X POST "$PARTNER/news/$NEWS_ID/publish" "${PAUTH[@]}" \
 | Code | Status | When |
 |---|---|---|
 | `KEY_ROLE_FORBIDDEN` | 403 | The partner key was not created by an owner or administrator. `error.details.capability` says which access is missing |
-| `WHITE_LABEL_REQUIRED` | 403 | `showPoweredBy: false`, a sender domain, or new dashboard colours or font, without white label |
-| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website or a logo link, or publish news to real restaurants |
+| `WHITE_LABEL_REQUIRED` | 403 | `showPoweredBy: false`, a sender domain, or new dashboard colours or font, without white label. `error.details.field` names the field |
+| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website or a logo link, publish news to real restaurants, or set `website` or `googleReviewUrl` on a real restaurant that is live |
 | `PARTNER_NEWS_FORBIDDEN` | 403 | News is for external partners only |
 | `NEWS_NOT_FOUND` | 404 | The news item is not yours |
 | `FILE_TOO_LARGE` | 413 | The logo is over 2 MB |
 | `LENGTH_REQUIRED` | 411 | The logo upload has no `Content-Length` |
-| `LOGO_NOT_ALLOWED` | 422 | `logoUrl` or `logoLightUrl` is a link to an image that was not uploaded to LettBestilt |
+| `LOGO_NOT_ALLOWED` | 422 | `logoUrl` or `logoLightUrl` is a link to an image that was not uploaded to LettBestilt. `error.details.field` says which |
 | `FILE_UNSUPPORTED` | 422 | The logo is not PNG, JPEG or WebP |
 | `IMAGE_NOT_ALLOWED` | 422 | An image in the news text was not uploaded to LettBestilt |
 | `NO_RECIPIENTS` | 422 | Nobody to send the news to |
@@ -411,7 +420,8 @@ The restaurant's owner, the partner portal and your code can change the same thi
 | Opening hours (the week) | No token. Saves run one after another and the last one wins |
 | Hours overrides | Send `expectedUpdatedAt`. Without it, a change made between your read and your write still gives `409` |
 | Delivery zones | No token (zones have no `updatedAt`). The write only goes through if the whole zone is as it was when the API read it |
-| Menus, categories, products, addon groups | No token (none of them has `updatedAt`). The write only goes through if the row is as it was when the API read it |
+| Products, addon groups | Send `expectedVersion` (the `version` from `GET …/menus/{menuId}` or `GET …/addon-groups`). Without it, the write still only goes through if the row is as it was when the API read it |
+| Menus, categories | No token (neither has `updatedAt`). The write only goes through if the row is as it was when the API read it |
 
 ## The demo restaurant
 
@@ -419,7 +429,7 @@ LettBestilt's demo restaurant can be read, but every write gives `409 DEMO_RESTA
 
 ## Errors
 
-The partner API's usual errors apply (`400 INVALID_JSON`, `422 VALIDATION_FAILED` with `error.details.issues`, `404 RESTAURANT_NOT_FOUND`, `409 RESTAURANT_ARCHIVED`, `429 RATE_LIMITED`). These are specific to the endpoints on this page:
+The partner API's usual errors apply (`400 INVALID_JSON`, `413 PAYLOAD_TOO_LARGE` for a JSON body over 1 MB, `422 VALIDATION_FAILED` with `error.details.issues`, `404 RESTAURANT_NOT_FOUND`, `409 RESTAURANT_ARCHIVED`, `429 RATE_LIMITED`). The `message` in each issue is in Norwegian, like the rest of the API's messages; use `path` in your code. These are specific to the endpoints on this page:
 
 | Code | Status | When |
 |---|---|---|
@@ -429,14 +439,14 @@ The partner API's usual errors apply (`400 INVALID_JSON`, `422 VALIDATION_FAILED
 | `CATEGORY_NOT_FOUND` | 404 | The category does not belong to the restaurant |
 | `PRODUCT_NOT_FOUND` | 404 | The product does not belong to the restaurant |
 | `ADDON_GROUP_NOT_FOUND` | 404 | The addon group does not belong to the restaurant |
-| `CHANGED` | 409 | Someone changed the same thing at the same time, or `expectedVersion` / `expectedUpdatedAt` is out of date. Nothing was changed |
+| `CHANGED` | 409 | Someone changed the same thing at the same time, or `expectedVersion` / `expectedUpdatedAt` is out of date (settings, products, addon groups, hours overrides). Nothing was changed |
 | `LEGAL_LOCKED` | 409 | A legal field would get a new value after the owner signed the customer agreement. `error.details.fields` lists them |
 | `DEMO_RESTAURANT` | 409 | A write to LettBestilt's demo restaurant |
 | `DELIVERY_ZONE_LIMIT` | 409 | The restaurant already has 50 delivery zones |
 | `HOURS_OVERRIDE_LIMIT` | 409 | The restaurant already has 200 opening hours overrides. Delete old ones before you add new ones |
 | `MENU_IS_DEFAULT` | 409 | You tried to delete the default menu |
 | `CATEGORY_NOT_EMPTY` | 409 | The category still has active products or subcategories |
-| `CATEGORY_LIMIT` | 409 | The restaurant already has 60 categories |
+| `CATEGORY_LIMIT` | 409 | The menu would get more than 60 categories |
 | `PRODUCT_LIMIT` | 409 | The restaurant would get more than 800 active or 2000 products in all (also when committing a menu import) |
 | `ADDON_GROUP_LIMIT` | 409 | The restaurant already has 100 addon groups |
 
@@ -446,7 +456,7 @@ An archived restaurant can be read, but every write on this page gives `409 REST
 
 | What | Limit |
 |---|---|
-| All partner endpoints | 120 calls per minute per partner key |
+| All partner endpoints | 120 calls per minute per partner key. Reading also has a limit of 600 calls per minute per partner, across all its keys |
 | Every write on this page | Shares the partner's 30 changes per minute with keys, webhooks and domains. Counted per environment: test keys and live keys have separate budgets |
 | `POST …/menus` | Also 10 per hour per restaurant, shared with committing menu imports |
 

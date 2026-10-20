@@ -38,8 +38,8 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PARTNER_NOT_APPROVED` | 403 | Partner API: your partner account registered itself and LettBestilt has not approved it yet. You get an email when it is approved |
 | `PARTNER_DATA_LOCKED` | 403 | Partner API: the real restaurant's owner has not signed the customer agreement and the data processing agreement yet. Webhooks carry customer data, so they can only be added after that |
 | `KEY_ROLE_FORBIDDEN` | 403 | Partner API: the partner key's creator is no longer an owner or administrator, so the key can read but not change your brand, profile or news. `details.capability` says which access is missing. A rotated key counts as created by the person who rotated it |
-| `WHITE_LABEL_REQUIRED` | 403 | Partner API: hiding "Drevet av LettBestilt", a sender domain, or dashboard colours and font need white label in the partner agreement |
-| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website or a logo link, or publish news to real restaurants |
+| `WHITE_LABEL_REQUIRED` | 403 | Partner API: hiding "Drevet av LettBestilt", a sender domain, or dashboard colours and font need white label in the partner agreement. `details.field` names the field |
+| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website or a logo link, publish news to real restaurants, or change `website` or `googleReviewUrl` on a real restaurant that is live |
 | `PARTNER_NEWS_FORBIDDEN` | 403 | Partner API: only external partners send news to their restaurants |
 | `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug. In the partner API also when the slug belongs to another partner or does not match the restaurant key |
 | `KEY_NOT_FOUND` | 404 | Partner API: the key does not belong to the restaurant, or is already revoked |
@@ -83,7 +83,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `HOURS_OVERRIDE_LIMIT` | 409 | Partner API: the restaurant already has 200 opening hours overrides. Delete old ones before you add new ones |
 | `MENU_IS_DEFAULT` | 409 | Partner API: the default menu cannot be deleted. Make another menu the default first |
 | `CATEGORY_NOT_EMPTY` | 409 | Partner API: the category still has active products or subcategories |
-| `CATEGORY_LIMIT` | 409 | Partner API: the restaurant already has 60 categories |
+| `CATEGORY_LIMIT` | 409 | Partner API: the menu would get more than 60 categories (subcategories included) |
 | `PRODUCT_LIMIT` | 409 | Partner API: the restaurant would get more than 800 active or 2000 products in all, also when committing a menu import |
 | `ADDON_GROUP_LIMIT` | 409 | Partner API: the restaurant already has 100 addon groups |
 | `PARTNER_ARCHIVED` | 409 | Partner API: the partner is suspended or archived, so its profile, sender domain and news cannot be changed |
@@ -97,6 +97,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `LENGTH_REQUIRED` | 411 | Partner API: a logo upload has no `Content-Length` |
 | `PDF_TOO_LARGE` | 413 | Partner API, menu import: the file (PDF or image) is larger than 4 MB |
 | `FILE_TOO_LARGE` | 413 | Partner API: the logo is over 2 MB |
+| `PAYLOAD_TOO_LARGE` | 413 | The JSON body is over 1 MB. |
 | `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
 | `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |
 | `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY` | 422 | Reservation rejections. See [Table reservations](/reservations) |
@@ -116,7 +117,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PDF_PARSE_TIMEOUT` | 422 | Partner API, menu import: reading the menu took too long. Try again, or split the menu into smaller files |
 | `MENU_IMPORT_TOO_BIG` | 422 | Partner API, menu import: the menu is too large to read in one go. Split it into smaller files |
 | `MENU_IMPORT_EMPTY` | 422 | Partner API, menu import: no dishes with prices were found in the file |
-| `LOGO_NOT_ALLOWED` | 422 | Partner API: `logoUrl` or `logoLightUrl` is not a file uploaded to LettBestilt |
+| `LOGO_NOT_ALLOWED` | 422 | Partner API: `logoUrl` or `logoLightUrl` is not a file uploaded to LettBestilt. `details.field` says which |
 | `IMAGE_NOT_ALLOWED` | 422 | Partner API: an image in a news item was not uploaded to LettBestilt |
 | `NO_RECIPIENTS` | 422 | Partner API: none of the news item's recipients can be reached now |
 | `SENDER_DOMAIN_REJECTED` | 422 | Partner API: the e-mail service did not accept the domain or the call |
@@ -146,7 +147,7 @@ Limits are counted per client IP, and for most endpoints per restaurant as well:
 | `GET /orders/{token}` | 60 per minute per IP, and 30 per minute per token |
 | `GET /prep-time`, `GET /site-gate` | 600 per minute per slug and IP |
 | `GET /menu`, `GET /restaurant` | No limit; responses are cached at the edge |
-| `/partner/…` (all endpoints) | 120 per minute per partner key |
+| `/partner/…` (all endpoints) | 120 per minute per partner key. Reading also: 600 per minute per partner, across all its keys |
 | `POST /partner/restaurants` | 10 per hour per partner key, and 20 per hour per partner |
 | `DELETE /partner/restaurants/{slug}` | 10 per hour per partner key |
 | Rotating and revoking keys, creating and deleting webhooks, adding, removing and changing domains, sending and revoking owner invitations, and committing menu imports in the partner API | 30 per minute per partner |
