@@ -35,7 +35,8 @@ With `paymentMethod: "CASH"` there is no payment link. The order is `CONFIRMED` 
 
 `successUrl` and `cancelUrl` are query parameters on `POST /orders`.
 
-- They must be `https` on lettbestilt.no, on a verified domain of the restaurant or its partner, or on a domain LettBestilt has approved. Other URLs are rejected with `400 INVALID_SUCCESS_URL` or `400 INVALID_CANCEL_URL`. Domains cannot be registered through the API; ask LettBestilt to verify a new host.
+- They must be `https` on lettbestilt.no, on a verified domain of the restaurant or its partner, or on a domain LettBestilt has approved. Other URLs are rejected with `400 INVALID_SUCCESS_URL` or `400 INVALID_CANCEL_URL`. Add and verify the restaurant's domains with `…/domains` in the [partner API](/partner-api) or in LettBestilt Partner.
+- A sandbox also accepts `http` or `https` to `localhost`, `127.0.0.1` and `[::1]` on any port, and `https` to `*.vercel.app`, so you can test the return from your own machine or a preview. A real restaurant does not.
 - If you leave out `successUrl`, the customer returns to `/order/{TOKEN}?payment=success` on the restaurant's website domain (or on `{slug}.lettbestilt.no`).
 - If you leave out `cancelUrl`, the customer returns to the front page of the restaurant's website domain, or to checkout on `{slug}.lettbestilt.no`.
 
@@ -64,4 +65,4 @@ The test page only works for sandbox orders. A real order's `stripeUrl` always g
 
 ## When the payment provider is down
 
-If SagaPay does not respond when the order is created, you get `503 INTERNAL_ERROR`. The order was saved, but it has no payment link and will never be paid. Let the customer try again (with a new `Idempotency-Key`), or offer cash if the restaurant accepts it.
+If SagaPay does not respond when the order is created, you get `503 PAYMENT_PROVIDER_UNAVAILABLE`. The order failed: it has no payment link, no `ORDER_CREATED` is sent, and a coupon on it can be used again. Let the customer try again (with a new `Idempotency-Key`; the same key gives `409 PAYMENT_INCOMPLETE`), or offer cash if the restaurant accepts it.

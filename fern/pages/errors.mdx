@@ -27,8 +27,11 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `MISSING_SLUG` | 400 | The `slug` is missing |
 | `MISSING_TOKEN` | 400 | The order token is not in a valid format |
 | `INVALID_JSON` | 400 | The body is not valid JSON |
-| `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | 400 | A return URL is not `https` on a verified domain or lettbestilt.no |
-| `BAD_REQUEST` | 400 | Malformed input, such as an invalid `Idempotency-Key`, or the restaurant is closed or does not offer the chosen fulfillment or payment method |
+| `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | 400 | A return URL is not `https` on a verified domain or lettbestilt.no (a sandbox also accepts localhost and `*.vercel.app`) |
+| `PAYMENT_METHOD_DISABLED` | 400 | `POST /orders`: the restaurant has turned the chosen payment method off |
+| `ONLINE_PAYMENT_UNAVAILABLE` | 400 | `POST /orders`: card or Vipps, but the restaurant has no active online payment (SagaPay) yet. Offer cash, or read `capabilities.payment.online` first |
+| `DELIVERY_DISABLED` / `PICKUP_DISABLED` | 400 | `POST /orders`: the restaurant does not offer the chosen fulfillment |
+| `BAD_REQUEST` | 400 | Malformed input, such as an invalid `Idempotency-Key`, or the restaurant is closed at that time |
 | `IDEMPOTENCY_KEY_REQUIRED` | 400 | LettBestilt Partner API: `POST /partner/restaurants` without a valid `Idempotency-Key` |
 | `UNAUTHORIZED` | 401 | Missing, wrong or revoked API key, and the origin is not trusted. Also a partner key (`lbp_…`) on a restaurant endpoint, or keys from different environments in the partner API |
 | `KEY_EXPIRED` | 401 | The key is valid but past its expiry date. Rotate to a new key |
@@ -128,7 +131,8 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `UPLOAD_FAILED` | 502 | Partner API: the logo could not be stored right now. Try again |
 | `MENU_IMPORT_UNAVAILABLE` | 503 | Partner API, menu import: the language model did not answer, and an image or scanned PDF has no fallback. Try again shortly |
 | `EMAIL_SERVICE_UNAVAILABLE` | 503 | Partner API: the e-mail service did not answer. Try again in a moment |
-| `INTERNAL_ERROR` | 5xx | Something failed on our side or at a provider. `503` on order creation means the payment provider did not answer |
+| `PAYMENT_PROVIDER_UNAVAILABLE` | 503 | `POST /orders`: SagaPay did not answer when the payment page was created. The order failed and has no payment link |
+| `INTERNAL_ERROR` | 5xx | Something failed on our side or at a provider |
 
 One exception to the envelope: `409 ONLINE_BOOKING_CLOSED` from `POST /reservations` uses a flat shape, `{ "error": "…", "code": "ONLINE_BOOKING_CLOSED" }`.
 

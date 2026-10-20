@@ -40,6 +40,7 @@ Create an order with `paymentMethod: "STRIPE"`. In a sandbox, `stripeUrl` points
 
 - **Betal (test)** marks the order `PAID`, sends `ORDER_PAID` to your webhooks as a real payment would, and returns the customer to `successUrl`.
 - **Avbryt** (cancel) marks the order `FAILED` and returns the customer to `cancelUrl`. No webhook is sent, as with a real abandoned payment.
+- In a sandbox, `successUrl` and `cancelUrl` may also point to `localhost`, `127.0.0.1`, `[::1]` (http or https, any port) or `https` `*.vercel.app`. When you go live, they must be on the restaurant's verified domain.
 
 No money moves. `restaurant.capabilities.payment.online` is `true` in a sandbox when online payment is turned on, so your checkout shows it. See [Payments](/payments#testing-payments-in-a-sandbox).
 
