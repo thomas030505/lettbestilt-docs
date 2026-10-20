@@ -92,8 +92,8 @@ Rules worth knowing:
 - `slug`, `email`, `storefrontEnabled`, the font, invoicing, agreements, payment and printers cannot be changed through the API (`422`, "Feltet kan ikke endres via API-et").
 - `latitude` and `longitude` go together: both or neither.
 - `logoUrl` and `coverImageUrl` must be files uploaded to LettBestilt. Any other address gives `422`. A value that is already stored is accepted, so a round trip from `GET` works.
-- `googleReviewUrl` must be `https`. Links (`website`, `googleReviewUrl`, `logoUrl`, `coverImageUrl`) are at most 2048 characters.
-- Through [LettBestilt MCP](/mcp), `website` and `googleReviewUrl` on a real restaurant that is live give `403 HUMAN_REQUIRED`: a person changes them, in the dashboard, in LettBestilt Partner or with this endpoint.
+- `googleReviewUrl` must be `https`. `logoUrl`, `coverImageUrl` and `googleReviewUrl` are at most 2048 characters, `website` at most 320.
+- Through [LettBestilt MCP](/mcp), sending `website` or `googleReviewUrl` for a real restaurant that is live gives `403 HUMAN_REQUIRED` (the field in `error.details.field`): a person changes them, in the dashboard, in LettBestilt Partner or with this endpoint.
 - At least one of `pickupEnabled` and `deliveryEnabled` must stay `true`.
 - Free text (`name`, `description`, `cuisineType` and the texts on the tracking page and the receipt) is cleaned like menu text: links, email addresses, HTML and invisible direction marks are removed. When something was removed, the response has `textCleaned` with the number of fields.
 - **Legal fields** (`orgNumber`, `legalName`, `addressLine1`, `postalCode`, `city`) go into the customer agreement. You can change them until the owner has signed it. After that, a new value gives `409 LEGAL_LOCKED` with the fields in `error.details.fields`; the same value as stored is accepted. The lock applies in the restaurant dashboard too, so the owner sees the same rule. The visiting address (`publicAddressLine1`, `publicPostalCode`, `publicCity`) and the coordinates can always be changed. `orgNumber` must have a valid check digit (mod 11).
@@ -191,7 +191,7 @@ curl -X POST "$API/$SLUG/menus" "${AUTH[@]}" \
 - Names and descriptions are cleaned like menu import: links, email addresses, HTML and invisible direction marks are removed, and `textCleaned` in the response says how many were changed.
 - **Not idempotent.** A retry after a lost response can create a second menu. Check `GET …/menus` before you try again, and delete the extra one.
 - No existing menu is changed.
-- Every product in the proposal is active and counts against the restaurant's product limit (800 active, 2000 in all): over it, `409 PRODUCT_LIMIT` and nothing is created. The same applies when you commit a menu import (`POST …/menu-imports/{importId}/commit`), which also cleans the text like this endpoint (line breaks in descriptions are kept) and gives `409 DEMO_RESTAURANT` on LettBestilt's demo restaurant.
+- Every product in the proposal is active and counts against the restaurant's product limit (800 active, 2000 in all): over it, `409 PRODUCT_LIMIT` and nothing is created. The same applies when you commit a menu import (`POST …/menu-imports/{importId}/commit`), which also cleans the text like this endpoint (line breaks in descriptions are kept). Uploading a file to menu import and committing it give `409 DEMO_RESTAURANT` on LettBestilt's demo restaurant; reading an import does not.
 
 `GET …/menus` lists every menu with its schedule, counts and `isLiveNow` (whether customers see it right now). `GET …/menus/{menuId}` returns the whole menu in the same shape as `GET /api/v1/menu`, also when it is turned off, including inactive categories and products.
 
@@ -221,7 +221,7 @@ curl -X POST "$API/$SLUG/categories/$CATEGORY_ID/products" "${AUTH[@]}" \
 
 **Send the ids back when you change sizes or addons.** `variants` on a product and `addons` on a group are replaced as a set. A row with the `id` you read is updated in place; a row without `id` is new and gets a new id; a row you leave out is deleted. Through [LettBestilt MCP](/mcp) a set that would delete an existing size or addon gives `422 VALIDATION_FAILED` instead (path `variants` or `addons`): an AI tool never removes them, a person does, in the dashboard or with these endpoints. Keep the ids: a customer's basket on the website holds the size and addon ids from the cached menu, so new ids can make orders fail for up to six minutes. Sizes also keep their `addonTierKey`, and addons their size prices, only when you send the id.
 
-**Send `expectedVersion` when you change a product or an addon group.** Every product and addon group in `GET …/menus/{menuId}` and `GET …/addon-groups` has a `version` (16 hex characters), and so does every write response. `PATCH …/products/{productId}` and `PATCH …/addon-groups/{groupId}` take it as `expectedVersion`; when the row, its sizes or its addons changed after you read them, you get `409 CHANGED` and nothing is saved. Read again and retry. Without `expectedVersion`, a change the owner made a minute ago can be overwritten.
+**Send `expectedVersion` when you change a product or an addon group.** Every product and addon group in `GET …/menus/{menuId}` and `GET …/addon-groups` has a `version` (16 hex characters), and so does every write response. `PATCH …/products/{productId}` and `PATCH …/addon-groups/{groupId}` take it as `expectedVersion` (optional here; LettBestilt MCP always requires it); when the row, its sizes or its addons changed after you read them, you get `409 CHANGED` and nothing is saved. Read again and retry. Without `expectedVersion`, a change the owner made a minute ago can be overwritten.
 
 Rules worth knowing:
 
@@ -257,7 +257,7 @@ A menu with dates but without `isDefault` or a schedule is never shown while ano
 
 - `warnings` in the response says when no menu is visible afterwards, or when another menu becomes visible. `notice` explains how the menu now shows.
 - `{ "isActive": false }` takes a menu out of service.
-- `GET /api/v1/menu` is cached for up to six minutes (30 seconds, then up to five more while it is refreshed), so the website can show the old menu for a while. Every write response that changes what customers see says so in `notice`.
+- `GET /api/v1/menu` is cached for up to six minutes (30 seconds, then up to five more while it is refreshed), so the website can show the old menu for a while. Every write response for menus, categories, products and addon groups says so in `notice`.
 
 `DELETE …/menus/{menuId}` deletes a menu that is not the default (`409 MENU_IS_DEFAULT`: make another menu the default first). A menu whose products have order history is turned off instead (`soft: true`), so old orders keep their products.
 
@@ -318,7 +318,7 @@ curl -X PATCH "$PARTNER/brand" "${PAUTH[@]}" \
   }'
 ```
 
-A new logo is uploaded as a file, never as a link to an image somewhere else (`422 LOGO_NOT_ALLOWED`, with the field in `error.details.field`). `POST /brand/logo` takes `multipart/form-data` with the field `file`: PNG, JPEG or WebP, at most 2 MB, read from the file's bytes. It stores the logo as `logoUrl` in the same call and returns the brand. The request needs a `Content-Length` (`411 LENGTH_REQUIRED`), and takes an optional text field `expectedUpdatedAt`. At most 10 logo uploads per hour per partner, for both logos together, shared with LettBestilt MCP. A new logo replaces the previous one, and the previous file is deleted only when LettBestilt has a record that you uploaded it; otherwise it stays.
+A new logo is uploaded as a file, never as a link to an image somewhere else (`422 LOGO_NOT_ALLOWED`, with the field in `error.details.field`). `POST /brand/logo` takes `multipart/form-data` with the field `file`: PNG, JPEG or WebP, at most 2 MB, read from the file's bytes. It stores the logo as `logoUrl` in the same call and returns the brand. The request needs a `Content-Length` (`411 LENGTH_REQUIRED`), and takes an optional text field `expectedUpdatedAt`. At most 10 logo uploads per hour per partner, for both logos together, shared with LettBestilt MCP. A new logo replaces the previous one. When you upload it through the API or LettBestilt MCP, the previous file is deleted only when LettBestilt has a record that you uploaded it (through the API, MCP, or LettBestilt Partner from 20 October 2026) and the other logo does not use it; replacing a logo in LettBestilt Partner never deletes the old file.
 
 ```bash
 curl -X POST "$PARTNER/brand/logo" "${PAUTH[@]}" -F "file=@logo.png"
@@ -340,7 +340,7 @@ curl -X PATCH "$PARTNER/brand" "${PAUTH[@]}" \
 
 ### Sender domain
 
-With white label, e-mail to your restaurant owners can go from your own domain (`noreply@post.yourcompany.no`). `POST /brand/sender-domain` with `{ "domain": "post.yourcompany.no" }` registers it and returns `201` with the DNS records to create at your DNS provider (`records[]` with `type`, `name`, `fullName`, `value` and `status`). Then `POST /brand/sender-domain/verify` checks them again. `status` is `NOT_STARTED`, `PENDING`, `VERIFIED` or `FAILED`; e-mail goes from your domain only when it is `VERIFIED`. `DELETE /brand/sender-domain` removes it, also without white label. Free e-mail services (such as `gmail.com`) cannot be registered. At most 10 changes per hour and 10 checks per 10 minutes per partner, shared with the portal.
+With white label, e-mail to your restaurant owners can go from your own domain (`noreply@post.yourcompany.no`). `POST /brand/sender-domain` with `{ "domain": "post.yourcompany.no" }` registers it and returns `201` with the DNS records to create at your DNS provider (`records[]` with `type`, `name`, `fullName`, `value` and `status`). Then `POST /brand/sender-domain/verify` checks them again. `status` is `NOT_STARTED`, `PENDING`, `VERIFIED` or `FAILED`; e-mail goes from your domain only when it is `VERIFIED`. `DELETE /brand/sender-domain` removes it, also without white label. A free e-mail service (such as `gmail.com`, or a domain under it) gives `422 VALIDATION_FAILED` on `domain`. At most 10 changes per hour and 10 checks per 10 minutes per partner, shared with the portal.
 
 ```bash
 curl -X POST "$PARTNER/brand/sender-domain" "${PAUTH[@]}" \
@@ -456,7 +456,7 @@ An archived restaurant can be read, but every write on this page gives `409 REST
 
 | What | Limit |
 |---|---|
-| All partner endpoints | 120 calls per minute per partner key. Reading also has a limit of 600 calls per minute per partner, across all its keys |
+| All partner endpoints | 120 calls per minute per partner key, and 600 per minute per partner across all its keys (reads and writes) |
 | Every write on this page | Shares the partner's 30 changes per minute with keys, webhooks and domains. Counted per environment: test keys and live keys have separate budgets |
 | `POST …/menus` | Also 10 per hour per restaurant, shared with committing menu imports |
 

@@ -147,7 +147,7 @@ Limits are counted per client IP, and for most endpoints per restaurant as well:
 | `GET /orders/{token}` | 60 per minute per IP, and 30 per minute per token |
 | `GET /prep-time`, `GET /site-gate` | 600 per minute per slug and IP |
 | `GET /menu`, `GET /restaurant` | No limit; responses are cached at the edge |
-| `/partner/…` (all endpoints) | 120 per minute per partner key. Reading also: 600 per minute per partner, across all its keys |
+| `/partner/…` (all endpoints) | 120 per minute per partner key, and 600 per minute per partner across all its keys |
 | `POST /partner/restaurants` | 10 per hour per partner key, and 20 per hour per partner |
 | `DELETE /partner/restaurants/{slug}` | 10 per hour per partner key |
 | Rotating and revoking keys, creating and deleting webhooks, adding, removing and changing domains, sending and revoking owner invitations, and committing menu imports in the partner API | 30 per minute per partner |
