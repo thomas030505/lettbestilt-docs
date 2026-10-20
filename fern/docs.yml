@@ -217,6 +217,23 @@ navigation:
               - POST /api/v1/partner/restaurants/{slug}/addon-groups
               - PATCH /api/v1/partner/restaurants/{slug}/addon-groups/{groupId}
               - DELETE /api/v1/partner/restaurants/{slug}/addon-groups/{groupId}
+              - GET /api/v1/partner/me
+              - GET /api/v1/partner/brand
+              - PATCH /api/v1/partner/brand
+              - POST /api/v1/partner/brand/logo
+              - POST /api/v1/partner/brand/logo-light
+              - GET /api/v1/partner/brand/sender-domain
+              - POST /api/v1/partner/brand/sender-domain
+              - DELETE /api/v1/partner/brand/sender-domain
+              - POST /api/v1/partner/brand/sender-domain/verify
+              - GET /api/v1/partner/profile
+              - PATCH /api/v1/partner/profile
+              - GET /api/v1/partner/news
+              - POST /api/v1/partner/news
+              - GET /api/v1/partner/news/{newsId}
+              - PATCH /api/v1/partner/news/{newsId}
+              - DELETE /api/v1/partner/news/{newsId}
+              - POST /api/v1/partner/news/{newsId}/publish
           - section: Webhooks
             referenced-packages:
               - webhooks

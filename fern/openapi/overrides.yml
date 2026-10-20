@@ -2414,6 +2414,316 @@ paths:
 # Webhooks (OpenAPI 3.1). Payloads verified against the platform's
 # dispatchWebhook() call sites.
 # -----------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Partner: your own account (trinn 4 A7/F5)
+  # Bare partnernøkkelen. Egne ankre (partnerAccount*): 401/403/429 er annerledes enn for restaurantoppsettet.
+  # ---------------------------------------------------------------------------
+  /api/v1/partner/me:
+    get:
+      operationId: getPartnerAccount
+      tags: [Partner]
+      summary: Get the partner the key belongs to
+      description: |-
+        **Partner key only.** Your name, `kind`, `approved`, `whiteLabelEnabled`, the key's `environment` (TEST or LIVE), `restaurantCount` (restaurants in that environment that are not archived), and `brand`, `profile` and `senderDomain` as the endpoints below return them. Never a key or a secret. No role needed.
+      responses:
+        "401": &partnerAccount401
+          description: "`UNAUTHORIZED`: the partner key is missing, invalid or revoked, or the partner is suspended or archived. `KEY_EXPIRED`: the key is past its expiry date."
+        "403": &partnerAccountRead403
+          description: "`FORBIDDEN`: the request has an `Origin` header (server-to-server only). `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet."
+        "429": &partnerAccountRead429
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+
+  /api/v1/partner/brand:
+    get:
+      operationId: getPartnerBrand
+      tags: [Partner]
+      summary: Get your brand
+      description: |-
+        **Partner key only.** The logo and light logo, the colours and font of your restaurant owners' dashboard, the support e-mail and phone, the website, `showPoweredBy` ("Drevet av LettBestilt"), `whiteLabelEnabled` (set by LettBestilt, read only) and `updatedAt`. Colours and font are shown as stored, but only apply with white label. No role needed.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountRead403
+        "429": *partnerAccountRead429
+    patch:
+      operationId: updatePartnerBrand
+      tags: [Partner]
+      summary: Change your brand
+      description: |-
+        **Partner key only.** Changes the fields you send, with the same rules as Brand in LettBestilt Partner; a field you leave out stays as it is, and `null` clears it. With `expectedUpdatedAt` (the `updatedAt` you read), nothing is written if the partner changed in the meantime (`409 CHANGED`).
+
+        The key must be created by an owner or administrator who still has that access (`403 KEY_ROLE_FORBIDDEN` otherwise). `logoUrl` and `logoLightUrl` must be files uploaded with `POST /brand/logo` and `POST /brand/logo-light` (the stored value is accepted). `showPoweredBy: false` and a new `themeSidebarColor`, `themeActionColor` or `themeFont` need white label (`403 WHITE_LABEL_REQUIRED`); removing them is always allowed. Colours are hex with a contrast of at least 4.5:1. Through LettBestilt MCP, `websiteUrl`, `logoUrl` and `logoLightUrl` give `403 HUMAN_REQUIRED`: the website decides which webhook hosts are trusted and is set by a person, and MCP uploads logos as files.
+      requestBody:
+        content:
+          application/json:
+            example:
+              expectedUpdatedAt: "2026-10-20T10:00:00.000Z"
+              supportEmail: support@yourcompany.no
+              themeSidebarColor: "#1f2a44"
+              themeFont: figtree
+      responses:
+        "400": &partnerAccountInvalidJson
+          description: "`INVALID_JSON`: the body is not valid JSON."
+        "401": *partnerAccount401
+        "403":
+          description: "`KEY_ROLE_FORBIDDEN`: the key's creator is no longer an owner or administrator (`error.details.capability` is `brand.manage`). `WHITE_LABEL_REQUIRED`: `showPoweredBy: false`, or a new colour or font, without white label. `HUMAN_REQUIRED`: `websiteUrl`, `logoUrl` or `logoLightUrl` sent through LettBestilt MCP. Or as for reading: `FORBIDDEN`, `PARTNER_AGREEMENT_REQUIRED`, `PARTNER_NOT_APPROVED`."
+        "409": &partnerAccountChanged
+          description: "`CHANGED`: the partner changed since `expectedUpdatedAt`, or at the same time."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an invalid or unknown field (also `whiteLabelEnabled`), an empty body, `websiteUrl` without https, a colour that is not hex or has too little contrast, a font not in the list, or an invalid `expectedUpdatedAt`. `LOGO_NOT_ALLOWED`: a logo or light logo that was not uploaded to LettBestilt."
+        "429": &partnerAccountWrite429
+          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or 30 changes per minute for the partner."
+
+  /api/v1/partner/brand/logo:
+    post:
+      operationId: uploadPartnerLogo
+      tags: [Partner]
+      summary: Upload your logo
+      description: |-
+        **Partner key only.** `multipart/form-data` with the field `file`: PNG, JPEG or WebP (read from the file's bytes), at most 2 MB. The file is stored at LettBestilt and becomes `logoUrl` in the same call. `Content-Length` is required. An optional text field `expectedUpdatedAt` gives `409 CHANGED` instead of overwriting a change made in between. The previous logo file is removed only if it was uploaded through the API or MCP by you. At most 10 uploads per hour per partner, shared by both logos. The key must be created by an owner or administrator (`403 KEY_ROLE_FORBIDDEN`).
+      responses:
+        "401": *partnerAccount401
+        "403": &partnerAccountBrand403
+          description: "`KEY_ROLE_FORBIDDEN`: the key's creator is no longer an owner or administrator (`error.details.capability` is `brand.manage`). Or as for reading: `FORBIDDEN`, `PARTNER_AGREEMENT_REQUIRED`, `PARTNER_NOT_APPROVED`."
+        "409": &partnerAccountLogo409
+          description: "`CHANGED`: the partner changed since `expectedUpdatedAt`, or at the same time. The file is not stored."
+        "411": &partnerAccountLogo411
+          description: "`LENGTH_REQUIRED`: the request has no `Content-Length`. The size is checked before the body is read."
+        "413": &partnerAccountLogo413
+          description: "`FILE_TOO_LARGE`: the file is over 2 MB, or `Content-Length` is over 2 MB plus the multipart framing."
+        "422": &partnerAccountLogo422
+          description: "`FILE_UNSUPPORTED`: not PNG, JPEG or WebP. `VALIDATION_FAILED`: not multipart, no `file`, or an invalid `expectedUpdatedAt`."
+        "429": &partnerAccountLogo429
+          description: "`RATE_LIMITED`: 10 uploads per hour per partner for both logos together, on top of 30 changes per minute."
+        "502": &partnerAccountLogo502
+          description: "`UPLOAD_FAILED`: the file could not be stored right now. Try again."
+
+  /api/v1/partner/brand/logo-light:
+    post:
+      operationId: uploadPartnerLightLogo
+      tags: [Partner]
+      summary: Upload your light logo
+      description: |-
+        **Partner key only.** A light version of your logo for the dark sidebar of your restaurant owners' dashboard; without one, the dashboard shows your normal logo inverted. Exactly the same rules as `POST /brand/logo`: `multipart/form-data` with `file` (PNG, JPEG or WebP, at most 2 MB), `Content-Length` required, optional `expectedUpdatedAt`, and 10 uploads per hour per partner shared by both logos. The file becomes `logoLightUrl`. The previous light logo file is removed only if it was uploaded through the API or MCP by you, and never while the normal logo uses the same file.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountBrand403
+        "409": *partnerAccountLogo409
+        "411": *partnerAccountLogo411
+        "413": *partnerAccountLogo413
+        "422": *partnerAccountLogo422
+        "429": *partnerAccountLogo429
+        "502": *partnerAccountLogo502
+
+  /api/v1/partner/brand/sender-domain:
+    get:
+      operationId: getPartnerSenderDomain
+      tags: [Partner]
+      summary: Get your sender domain
+      description: |-
+        **Partner key only.** Your own sender domain (white label): the domain, its `status` and the DNS records to create at your DNS provider. No role needed.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountRead403
+        "429": *partnerAccountRead429
+    post:
+      operationId: setPartnerSenderDomain
+      tags: [Partner]
+      summary: Add your sender domain
+      description: |-
+        **Partner key only.** Registers the domain (for example `post.yourcompany.no`; e-mail then goes from `noreply@` that host once it is `VERIFIED`) and returns `201` with the DNS records. Needs white label and a key created by an owner or administrator. At most 10 changes per hour per partner, shared with LettBestilt Partner. Remove the old domain first to switch.
+      responses:
+        "400": *partnerAccountInvalidJson
+        "401": *partnerAccount401
+        "403": &partnerAccountSender403
+          description: "`KEY_ROLE_FORBIDDEN` (`error.details.capability` is `brand.manage`), `WHITE_LABEL_REQUIRED`, or as for reading: `FORBIDDEN`, `PARTNER_AGREEMENT_REQUIRED`, `PARTNER_NOT_APPROVED`."
+        "409":
+          description: "`SENDER_DOMAIN_ALREADY_SET`, `DOMAIN_TAKEN` (another partner uses it), `DOMAIN_EXISTS` (already used for e-mail at LettBestilt), `PARTNER_ARCHIVED` or `CHANGED`."
+        "422":
+          description: "`VALIDATION_FAILED`: an invalid or reserved domain (`error.details.issues` on `domain`). `SENDER_DOMAIN_REJECTED`: the e-mail service did not accept the name."
+        "429":
+          description: "`RATE_LIMITED`: our limit or the e-mail service's."
+        "503": &partnerAccountEmail503
+          description: "`EMAIL_SERVICE_UNAVAILABLE`: the e-mail service did not answer. Try again in a moment."
+    delete:
+      operationId: deletePartnerSenderDomain
+      tags: [Partner]
+      summary: Remove your sender domain
+      description: |-
+        **Partner key only.** Removes the domain; e-mail goes from LettBestilt's domain again. Does not need white label, so a domain can be cleaned up afterwards. A new domain gets a new DKIM value. Needs a key created by an owner or administrator. LettBestilt MCP never removes the sender domain.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountBrand403
+        "409":
+          description: "`SENDER_DOMAIN_NOT_SET` or `CHANGED`."
+        "422":
+          description: "`SENDER_DOMAIN_REJECTED`: the e-mail service rejected the call."
+        "429": *partnerAccountWrite429
+        "503": *partnerAccountEmail503
+
+  /api/v1/partner/brand/sender-domain/verify:
+    post:
+      operationId: verifyPartnerSenderDomain
+      tags: [Partner]
+      summary: Check the DNS records of your sender domain
+      description: |-
+        **Partner key only.** Asks the e-mail service to check the DNS records again and returns the new `status`. Needs white label and a key created by an owner or administrator. At most 10 checks per 10 minutes per partner, shared with LettBestilt Partner.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountSender403
+        "409":
+          description: "`SENDER_DOMAIN_NOT_SET`, `PARTNER_ARCHIVED` or `CHANGED`."
+        "422":
+          description: "`SENDER_DOMAIN_REJECTED`: the e-mail service rejected the call."
+        "429":
+          description: "`RATE_LIMITED`."
+        "503": *partnerAccountEmail503
+
+  /api/v1/partner/profile:
+    get:
+      operationId: getPartnerProfile
+      tags: [Partner]
+      summary: Get your contact and invoice details
+      description: |-
+        **Partner key only.** The contact person, the invoice method and address, `orgNumber` (read only; it is in the signed agreements) and `updatedAt`. No role needed.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountRead403
+        "429": *partnerAccountRead429
+    patch:
+      operationId: updatePartnerProfile
+      tags: [Partner]
+      summary: Change your contact and invoice details
+      description: |-
+        **Partner key only.** Changes the fields you send, with the same rules as "Kontakt og faktura" in LettBestilt Partner; an empty string or `null` clears a field. `invoiceDeliveryMethod: EMAIL` needs `invoiceEmail`. The legal name and organisation number cannot be changed. With `expectedUpdatedAt`, nothing is written if the partner changed in the meantime (`409 CHANGED`). Needs a key created by an owner or administrator (`403 KEY_ROLE_FORBIDDEN`, `error.details.capability` is `profile.manage`). Logged with the field names, never the values.
+      responses:
+        "400": *partnerAccountInvalidJson
+        "401": *partnerAccount401
+        "403":
+          description: "`KEY_ROLE_FORBIDDEN`: the key's creator is no longer an owner or administrator (`error.details.capability` is `profile.manage`). Or as for reading: `FORBIDDEN`, `PARTNER_AGREEMENT_REQUIRED`, `PARTNER_NOT_APPROVED`."
+        "409":
+          description: "`CHANGED` or `PARTNER_ARCHIVED`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`: an invalid or unknown field (also `orgNumber`), an empty body, an invalid `expectedUpdatedAt`, or `invoiceDeliveryMethod` EMAIL without `invoiceEmail` (path `invoiceEmail`)."
+        "429": *partnerAccountWrite429
+
+  /api/v1/partner/news:
+    get:
+      operationId: listPartnerNews
+      tags: [Partner]
+      summary: List your news
+      description: |-
+        **Partner key only.** Your news to your restaurants, newest first, without the text, with `limit` (1–50, default 25) and `cursor` (`nextCursor` from the previous page). Bound to the key's environment: a test key only sees news whose recipients are all sandboxes (never "all"), a live key only news with no sandboxes among the recipients. No role needed.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountRead403
+        "422":
+          description: "`VALIDATION_FAILED`: an invalid `limit` or an unknown `cursor`."
+        "429": *partnerAccountRead429
+    post:
+      operationId: createPartnerNews
+      tags: [Partner]
+      summary: Write a news draft
+      description: |-
+        **Partner key only.** Creates a draft (`201`); publishing is a separate call. Recipients are `restaurantSlugs` (the API rejects `restaurantIds`) or `audienceAll: true`. Bound to the key's environment: with a test key only sandboxes and never `audienceAll: true`; with a live key only real restaurants. Needs a key created by an owner or administrator (`error.details.capability` is `news.manage`). Changes count in the partner's limit of 60 per 10 minutes, shared with LettBestilt Partner, and are logged with ids and field names, never the text.
+      requestBody:
+        content:
+          application/json:
+            example:
+              title: New opening hours in the dashboard
+              body: You can now set holiday hours under **Åpningstider**.
+              level: UPDATE
+              audienceAll: false
+              restaurantSlugs: [pizza-roma]
+      responses:
+        "400": *partnerAccountInvalidJson
+        "401": *partnerAccount401
+        "403": &partnerAccountNews403
+          description: "`KEY_ROLE_FORBIDDEN` (`error.details.capability` is `news.manage`), `PARTNER_NEWS_FORBIDDEN` (only external partners have news), or as for reading: `FORBIDDEN`, `PARTNER_AGREEMENT_REQUIRED`, `PARTNER_NOT_APPROVED`."
+        "404":
+          description: "`RESTAURANT_NOT_FOUND`: one of `restaurantSlugs` is not one of your restaurants in the key's environment that can be reached now."
+        "409":
+          description: "`PARTNER_ARCHIVED`: the partner is suspended or archived."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues` (also `restaurantIds`, unknown fields, an invalid `expiresAt`, and `audienceAll: true` with a test key). `IMAGE_NOT_ALLOWED`: an image in the text that was not uploaded to LettBestilt."
+        "429": *partnerAccountWrite429
+
+  /api/v1/partner/news/{newsId}:
+    parameters:
+      - name: newsId
+        in: path
+        description: The news item's `id` from `GET /news` or `POST /news`.
+    get:
+      operationId: getPartnerNews
+      tags: [Partner]
+      summary: Get a news item
+      description: |-
+        **Partner key only.** The news item with its text. Bound to the key's environment like the list. No role needed.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountRead403
+        "404": &partnerAccountNews404
+          description: "`NEWS_NOT_FOUND`: the same answer for an unknown id, another partner's news and news outside the key's environment."
+        "429": *partnerAccountRead429
+    patch:
+      operationId: updatePartnerNews
+      tags: [Partner]
+      summary: Change a news draft
+      description: |-
+        **Partner key only.** Drafts only (`409 NOT_DRAFT`). Changes the fields you send. With `expectedUpdatedAt`, nothing is written if the draft changed in the meantime (`409 CHANGED`). Bound to the key's environment, and with a test key `audienceAll` cannot be set to true. Needs a key created by an owner or administrator.
+      responses:
+        "400": *partnerAccountInvalidJson
+        "401": *partnerAccount401
+        "403": *partnerAccountNews403
+        "404":
+          description: "`NEWS_NOT_FOUND`, or `RESTAURANT_NOT_FOUND` for one of `restaurantSlugs`."
+        "409":
+          description: "`NOT_DRAFT`, `CHANGED` or `PARTNER_ARCHIVED`."
+        "422":
+          description: "`VALIDATION_FAILED` with `error.details.issues`, or `IMAGE_NOT_ALLOWED`."
+        "429": *partnerAccountWrite429
+    delete:
+      operationId: deletePartnerNews
+      tags: [Partner]
+      summary: Delete a news draft
+      description: |-
+        **Partner key only.** Drafts only (`409 NOT_DRAFT`); archive a published news item instead. Needs a key created by an owner or administrator. LettBestilt MCP never deletes news.
+      responses:
+        "401": *partnerAccount401
+        "403": *partnerAccountNews403
+        "404": *partnerAccountNews404
+        "409":
+          description: "`NOT_DRAFT` or `PARTNER_ARCHIVED`."
+        "429": *partnerAccountWrite429
+
+  /api/v1/partner/news/{newsId}/publish:
+    parameters:
+      - name: newsId
+        in: path
+        description: The news item's `id`.
+    post:
+      operationId: publishPartnerNews
+      tags: [Partner]
+      summary: Publish, schedule, unschedule or archive a news item
+      description: |-
+        **Partner key only.** `action` is required (an empty body never publishes): `publish` (draft or scheduled → published; the recipients are locked, and owners are e-mailed when `sendEmail` is true), `schedule` (draft → scheduled at `scheduledAt`, in the future with a time zone), `unschedule` (scheduled → draft) or `archive` (published → archived). The news reaches real restaurants and their owners. Bound to the key's environment, so a test key only publishes to sandboxes. Publishing and scheduling need someone to send to and count in the send limit of 10 per day per partner, shared with LettBestilt Partner. Through LettBestilt MCP with a live key, `publish` and `schedule` give `403 HUMAN_REQUIRED`: a person publishes news to real restaurants.
+      requestBody:
+        content:
+          application/json:
+            example:
+              action: schedule
+              scheduledAt: "2026-11-01T09:00:00+01:00"
+      responses:
+        "400": *partnerAccountInvalidJson
+        "401": *partnerAccount401
+        "403":
+          description: "`KEY_ROLE_FORBIDDEN` (`error.details.capability` is `news.manage`), `PARTNER_NEWS_FORBIDDEN`, `HUMAN_REQUIRED` (`publish` or `schedule` through LettBestilt MCP with a live key; `unschedule` is allowed), or as for reading: `FORBIDDEN`, `PARTNER_AGREEMENT_REQUIRED`, `PARTNER_NOT_APPROVED`."
+        "404": *partnerAccountNews404
+        "409":
+          description: "`NOT_DRAFT` (schedule), `NOT_SCHEDULED` (unschedule), `NOT_PUBLISHED` (archive), `NOT_CLAIMABLE` (already published or archived) or `PARTNER_ARCHIVED`."
+        "422":
+          description: "`NO_RECIPIENTS`: none of the recipients can be reached now. `VALIDATION_FAILED`: `action` missing or unknown, an unknown field, or `scheduledAt` missing or in the past."
+        "429":
+          description: "`RATE_LIMITED`: 30 changes per minute, 60 per 10 minutes, or 10 sends per day."
 webhooks:
   orderCreated:
     post:

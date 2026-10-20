@@ -1,6 +1,6 @@
 ---
 title: Set up a restaurant through the API
-subtitle: Settings, opening hours, delivery and the menu, from an empty sandbox to a go-live request
+subtitle: Settings, opening hours, delivery and the menu, from an empty sandbox to a go-live request, and your own partner account
 ---
 
 {/*
@@ -8,6 +8,7 @@ subtitle: Settings, opening hours, delivery and the menu, from an empty sandbox 
   lettbestilt-docs/fern/pages/partner-setup-api.mdx under seksjonen Partners, med slug
   `partner-setup-api`. Se docs/fern/README-trinn4.md.
   A5 (kategorier, produkter og tilleggsgrupper) står under «Edit the menu piece by piece».
+  A7/M6 (partnerens egne ting) står under «Your own partner account».
 */}
 
 The [LettBestilt Partner API](/partner-api) creates restaurants and connects them to a website. The endpoints on this page set up the restaurant itself: its profile and brand, opening hours, delivery zones and menu. With them, your own code or an AI tool through [LettBestilt MCP](/mcp) can take a restaurant from an empty sandbox to a go-live request without opening the dashboard.
@@ -259,6 +260,141 @@ Connect the website as described in the [LettBestilt Partner API](/partner-api#d
 ## 8. Go live
 
 For a real restaurant, `GET /partner/restaurants/{slug}` shows the go-live status in `goLive`. With the steps on this page, the checks for the menu, opening hours, delivery (a warning when delivery is on without an active zone) and allergens can be fixed through the API; campaign tracking is a script on the website (see [Campaign tracking](/campaign-tracking)). Online payment cannot: the owner sets it up with SagaPay, signs the agreements and sets the restaurant live. When the steps are done, ask LettBestilt for approval with `POST …/go-live-review`; see [Go-live approval](/partner-api#go-live-approval) and [From sandbox to live](/sandbox-to-live).
+
+## Your own partner account
+
+Everything above is about one restaurant. These endpoints are about you, the partner: your brand, your contact and invoice details, your sender domain and your news to your restaurants. They need **only the partner key**, no restaurant key, and are server-side only like the rest of the partner API. [LettBestilt MCP](/mcp#your-partner-account) calls the same endpoints.
+
+| Area | Endpoints |
+|---|---|
+| Your account | `GET /me` |
+| Brand | `GET`, `PATCH /brand`, `POST /brand/logo`, `POST /brand/logo-light` |
+| Sender domain | `GET`, `POST`, `DELETE /brand/sender-domain`, `POST /brand/sender-domain/verify` |
+| Contact and invoice details | `GET`, `PATCH /profile` |
+| News | `GET`, `POST /news`, `GET`, `PATCH`, `DELETE /news/{newsId}`, `POST /news/{newsId}/publish` |
+
+The paths are under `https://www.lettbestilt.no/api/v1/partner`. The examples use:
+
+```bash
+PARTNER="https://www.lettbestilt.no/api/v1/partner"
+PAUTH=(-H "Authorization: Bearer $LETTBESTILT_PARTNER_KEY")
+```
+
+**Who the key is.** Reading needs no role. Every change needs a partner key **created by an owner or administrator** on your partner team (or by LettBestilt), and that person must still have the access in the portal. A key created by a developer, support or read-only member gets `403 KEY_ROLE_FORBIDDEN` with the access in `error.details.capability` (`brand.manage`, `profile.manage` or `news.manage`). Create a new partner key as an owner or administrator under **Innstillinger → Partnernøkkel (API)**. A rotated key counts as created by the person who rotated it, so a developer who rotates the owner's key gets `403 KEY_ROLE_FORBIDDEN` on brand, profile and news; LettBestilt Partner shows per key whether it can change the partner's own settings.
+
+### Your account
+
+`GET /me` returns your name, `kind`, `approved`, `whiteLabelEnabled`, the key's `environment`, `restaurantCount` (restaurants in that environment that are not archived), and `brand`, `profile` and `senderDomain` as below. Never a key.
+
+```bash
+curl "$PARTNER/me" "${PAUTH[@]}"
+```
+
+### Brand
+
+`GET /brand` returns `logoUrl`, `logoLightUrl`, `themeSidebarColor`, `themeActionColor`, `themeFont`, `supportEmail`, `supportPhone`, `websiteUrl`, `showPoweredBy`, `whiteLabelEnabled` (set by LettBestilt, read only) and `updatedAt`. Your restaurant owners see the brand. `PATCH /brand` changes the fields you send; `null` clears one, and `expectedUpdatedAt` (the `updatedAt` you read) gives `409 CHANGED` instead of overwriting a change made in between. `showPoweredBy: false` needs white label (`403 WHITE_LABEL_REQUIRED`). `websiteUrl` must be `https://`; it decides which webhook hosts are trusted, so LettBestilt MCP never sets it (`403 HUMAN_REQUIRED`). LettBestilt MCP uploads logos as files and never sends `logoUrl` or `logoLightUrl` (`403 HUMAN_REQUIRED`).
+
+```bash
+curl -X PATCH "$PARTNER/brand" "${PAUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expectedUpdatedAt": "2026-10-20T10:00:00.000Z",
+    "supportEmail": "support@yourcompany.no",
+    "supportPhone": "+47 33 00 00 00"
+  }'
+```
+
+A new logo is uploaded as a file, never as a link to an image somewhere else (`422 LOGO_NOT_ALLOWED`). `POST /brand/logo` takes `multipart/form-data` with the field `file`: PNG, JPEG or WebP, at most 2 MB, read from the file's bytes. It stores the logo as `logoUrl` in the same call and returns the brand. The request needs a `Content-Length` (`411 LENGTH_REQUIRED`), and takes an optional text field `expectedUpdatedAt`. At most 10 logo uploads per hour per partner, for both logos together, shared with LettBestilt MCP.
+
+```bash
+curl -X POST "$PARTNER/brand/logo" "${PAUTH[@]}" -F "file=@logo.png"
+```
+
+**Light logo.** The sidebar of your restaurant owners' dashboard is dark. `POST /brand/logo-light` uploads a light version of your logo for it, with exactly the same rules as `/brand/logo`, and stores it as `logoLightUrl`. Without a light logo, the dashboard shows your normal logo with its lightness inverted. `PATCH /brand` with `logoLightUrl: null` removes it.
+
+```bash
+curl -X POST "$PARTNER/brand/logo-light" "${PAUTH[@]}" -F "file=@logo-light.png"
+```
+
+**Colours and font.** With white label you can give the owners' dashboard your colours and font: `themeSidebarColor` (the sidebar), `themeActionColor` (buttons and links) and `themeFont`, one of `dm-sans`, `plus-jakarta-sans`, `nunito-sans`, `work-sans`, `source-sans-3` and `figtree`. Colours are hex (`#1f2a44`, stored as `#rrggbb`) and need a contrast of at least 4.5:1, the sidebar colour against the light menu text and the main colour against the light background; otherwise `422 VALIDATION_FAILED`. A new colour or font without white label gives `403 WHITE_LABEL_REQUIRED`; `null` restores LettBestilt's default and is always allowed. The values only apply in the owners' dashboard, and only while you have white label.
+
+```bash
+curl -X PATCH "$PARTNER/brand" "${PAUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "themeSidebarColor": "#1f2a44", "themeActionColor": "#1d3d48", "themeFont": "figtree" }'
+```
+
+### Sender domain
+
+With white label, e-mail to your restaurant owners can go from your own domain (`noreply@post.yourcompany.no`). `POST /brand/sender-domain` with `{ "domain": "post.yourcompany.no" }` registers it and returns `201` with the DNS records to create at your DNS provider (`records[]` with `type`, `name`, `fullName`, `value` and `status`). Then `POST /brand/sender-domain/verify` checks them again. `status` is `NOT_STARTED`, `PENDING`, `VERIFIED` or `FAILED`; e-mail goes from your domain only when it is `VERIFIED`. `DELETE /brand/sender-domain` removes it, also without white label. At most 10 changes per hour and 10 checks per 10 minutes per partner, shared with the portal.
+
+```bash
+curl -X POST "$PARTNER/brand/sender-domain" "${PAUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "domain": "post.yourcompany.no" }'
+curl -X POST "$PARTNER/brand/sender-domain/verify" "${PAUTH[@]}"
+```
+
+### Contact and invoice details
+
+`GET /profile` returns `contactName`, `contactEmail`, `contactPhone`, `preferredContactMethod` (`EMAIL` or `PHONE`), `invoiceDeliveryMethod` (`EHF` or `EMAIL`), `invoiceEmail`, `invoiceAddressLine`, `invoicePostalCode`, `invoiceCity`, `invoiceReference`, `orgNumber` (read only) and `updatedAt`. `PATCH /profile` changes the fields you send, with `expectedUpdatedAt`. `EMAIL` as delivery method needs `invoiceEmail` (`422 VALIDATION_FAILED`). The legal name and organisation number are in your signed agreements and only change through LettBestilt. An archived partner gets `409 PARTNER_ARCHIVED`.
+
+```bash
+curl -X PATCH "$PARTNER/profile" "${PAUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "invoiceDeliveryMethod": "EMAIL", "invoiceEmail": "invoice@yourcompany.no" }'
+```
+
+### News to your restaurants
+
+News is a message from you in the restaurant dashboard's inbox, optionally by e-mail, for external partners only (`403 PARTNER_NEWS_FORBIDDEN`). News is bound to the key's environment: with a test key, news goes to sandboxes you name in `restaurantSlugs` (`audienceAll: true` gives `422`); with a live key, to real restaurants. `GET /news` lists the news the key can reach, newest first, with `limit` (1–50) and `cursor`, status, recipients as slugs and read counts.
+
+`POST /news` creates a draft (`201`): `title`, `body` (limited markdown; images only uploaded to LettBestilt, `422 IMAGE_NOT_ALLOWED`), `level` (`INFO`, `UPDATE`, `WARNING`), `audienceAll`, `restaurantSlugs`, `sendEmail` and `expiresAt` (`YYYY-MM-DD`). A slug that is not yours gives `404 RESTAURANT_NOT_FOUND`. `PATCH` and `DELETE /news/{newsId}` change or delete a draft (`409 NOT_DRAFT` otherwise).
+
+```bash
+curl -X POST "$PARTNER/news" "${PAUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "New ordering page",
+    "body": "Your ordering page has a new look from Monday.",
+    "level": "UPDATE",
+    "audienceAll": false,
+    "restaurantSlugs": ["pizzaroma-test"]
+  }'
+```
+
+`POST /news/{newsId}/publish` takes `{ "action": "publish" | "schedule" | "unschedule" | "archive", "scheduledAt"? }`. Publishing locks the recipients (`422 NO_RECIPIENTS` when there is nobody to send to). At most 60 news changes per 10 minutes and 10 sends per day per partner, shared with the portal. LettBestilt MCP writes drafts for real restaurants but never publishes them (`403 HUMAN_REQUIRED`); a person does, in the portal or with this endpoint.
+
+```bash
+curl -X POST "$PARTNER/news/$NEWS_ID/publish" "${PAUTH[@]}" \
+  -H "Content-Type: application/json" \
+  -d '{ "action": "schedule", "scheduledAt": "2026-11-02T09:00:00+01:00" }'
+```
+
+### Errors for your own account
+
+| Code | Status | When |
+|---|---|---|
+| `KEY_ROLE_FORBIDDEN` | 403 | The partner key was not created by an owner or administrator. `error.details.capability` says which access is missing |
+| `WHITE_LABEL_REQUIRED` | 403 | `showPoweredBy: false`, a sender domain, or new dashboard colours or font, without white label |
+| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website or a logo link, or publish news to real restaurants |
+| `PARTNER_NEWS_FORBIDDEN` | 403 | News is for external partners only |
+| `NEWS_NOT_FOUND` | 404 | The news item is not yours |
+| `FILE_TOO_LARGE` | 413 | The logo is over 2 MB |
+| `LENGTH_REQUIRED` | 411 | The logo upload has no `Content-Length` |
+| `LOGO_NOT_ALLOWED` | 422 | `logoUrl` or `logoLightUrl` is a link to an image that was not uploaded to LettBestilt |
+| `FILE_UNSUPPORTED` | 422 | The logo is not PNG, JPEG or WebP |
+| `IMAGE_NOT_ALLOWED` | 422 | An image in the news text was not uploaded to LettBestilt |
+| `NO_RECIPIENTS` | 422 | Nobody to send the news to |
+| `SENDER_DOMAIN_REJECTED` | 422 | The e-mail service did not accept the domain |
+| `CHANGED` | 409 | `expectedUpdatedAt` is out of date |
+| `NOT_DRAFT`, `NOT_PUBLISHED`, `NOT_SCHEDULED`, `NOT_CLAIMABLE` | 409 | The news item is not in the state the action needs |
+| `SENDER_DOMAIN_ALREADY_SET`, `SENDER_DOMAIN_NOT_SET`, `DOMAIN_TAKEN`, `DOMAIN_EXISTS` | 409 | One sender domain per partner; the domain is someone else's or already registered |
+| `PARTNER_ARCHIVED` | 409 | Your partner account is archived or suspended |
+| `UPLOAD_FAILED` | 502 | The logo could not be stored right now |
+| `EMAIL_SERVICE_UNAVAILABLE` | 503 | The e-mail service did not answer; try again |
+
+Every change is logged in your activity log with the partner key that was used (actor «Partner-API», or «MCP» from LettBestilt MCP).
 
 ## Changes at the same time
 
