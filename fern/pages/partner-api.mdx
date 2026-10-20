@@ -3,7 +3,7 @@ title: LettBestilt Partner API
 subtitle: Create and manage restaurants from your own systems
 ---
 
-The LettBestilt Partner API, under `https://www.lettbestilt.no/api/v1/partner`, lets you create sandboxes, read a restaurant's setup, rotate and revoke its keys, manage its webhooks and domains, import its menu from a PDF or photo, invite its owner and ask LettBestilt for go-live approval, without opening LettBestilt Partner (the partner portal). Everything it does can also be done in the portal. The same setup is available to AI assistants through [LettBestilt MCP](/mcp).
+The LettBestilt Partner API, under `https://www.lettbestilt.no/api/v1/partner`, lets you create sandboxes, read a restaurant's setup, rotate and revoke its keys, manage its webhooks and domains, import its menu from a PDF or photo, invite its owner and ask LettBestilt for go-live approval, set up its settings, opening hours, delivery zones and menu ([Set up a restaurant through the API](/partner-setup-api)), and manage your own partner account: brand, logos, sender domain, profile and news to your restaurants ([Your own partner account](/partner-setup-api#your-own-partner-account)), without opening LettBestilt Partner (the partner portal). Everything it does can also be done in the portal. The same setup is available to AI assistants through [LettBestilt MCP](/mcp).
 
 <Note>
 Test partner keys (`lbp_test_…`) see and create only sandboxes. Live partner keys (`lbp_live_…`) reach real restaurants and can be created in the partner portal once LettBestilt Partner is open; until then, real restaurants are created in the partner portal, and inviting the owner and asking for go-live approval are done there too. The endpoints for real restaurants are described below so you can build against them.
@@ -30,6 +30,8 @@ The partner key alone can only see the surface and create new restaurants. Anyth
 | `GET`, `POST …/webhooks`, `DELETE …/webhooks/{webhookId}` | | ✓ |
 | `GET`, `POST …/domains`, `DELETE`, `PATCH …/domains/{domainId}`, `POST …/domains/{domainId}/verify` | | ✓ |
 | `POST …/menu-imports`, `GET …/menu-imports/{importId}`, `POST …/menu-imports/{importId}/commit` | | ✓ |
+| `/me`, `/brand`, `/brand/logo`, `/brand/logo-light`, `/brand/sender-domain`, `/profile`, `/news` ([your own partner account](/partner-setup-api#your-own-partner-account)) | ✓ | |
+| `…/settings`, `…/hours`, `…/delivery-zones`, `…/menus`, `…/categories`, `…/products`, `…/addon-groups` ([setup](/partner-setup-api)) | | ✓ |
 | `POST`, `DELETE …/owner-invite` (real restaurants) | | ✓ |
 | `POST`, `DELETE …/go-live-review` (real restaurants) | | ✓ |
 
@@ -187,7 +189,7 @@ A real restaurant needs LettBestilt's approval before it goes live for the first
 | All partner endpoints | 120 calls per minute per partner key |
 | Create a restaurant | 10 per hour per partner key, and 20 per hour per partner. Replays do not count |
 | Delete or archive a restaurant | 10 per hour per partner key |
-| Rotate or revoke keys, create or delete webhooks, add, remove or change domains, owner invitations, commit menu imports | 30 per minute per partner |
+| Rotate or revoke keys, create or delete webhooks, add, remove or change domains, owner invitations, commit menu imports, and every write in [Set up a restaurant through the API](/partner-setup-api) and [Your own partner account](/partner-setup-api#your-own-partner-account) | 30 per minute per partner |
 | Owner invitations | 5 sent per hour per restaurant and 30 per partner; 20 attempts per hour per restaurant and 60 per partner |
 | Verify a domain | 30 per 10 minutes per restaurant |
 | Go-live requests | 15 per hour per restaurant and 30 per partner; withdrawing 10 per hour per restaurant |

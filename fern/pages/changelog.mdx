@@ -5,6 +5,61 @@ subtitle: Changes to the LettBestilt API and the partner tools
 
 Newest first. New fields, endpoints, error codes and events can appear in `/api/v1` at any time, so ignore what you do not recognise.
 
+## 2026-10-20: Set up a restaurant through the API, and LettBestilt MCP configuration tools
+
+**Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed.
+
+### New
+
+- **[Set up a restaurant through the API](/partner-setup-api)**: the partner API now sets up the restaurant itself, with the same rules as the restaurant dashboard. A partner can change what a developer on the partner team can change there, and nothing more.
+  - **Settings**: `GET` and `PATCH …/{slug}/settings` for the profile, visiting address, colours, logo and cover image, pickup and delivery, preparation times, the texts on the tracking page and the receipt, and the legal fields. `version` and `expectedVersion` stop you from overwriting a change made in between.
+  - **Opening hours**: `GET` and `PUT …/{slug}/hours` for the week, and `POST …/{slug}/hours/overrides`, `PATCH` and `DELETE …/{slug}/hours/overrides/{overrideId}` for holidays and other exceptions.
+  - **Delivery zones**: `GET` and `POST …/{slug}/delivery-zones`, `PATCH` and `DELETE …/{slug}/delivery-zones/{zoneId}`, by postal code or by radius.
+  - **Menus**: `POST …/{slug}/menus` creates a menu that is turned off from the same proposal as menu import, `PATCH …/{slug}/menus/{menuId}` publishes it, `PUT …/{slug}/menus/{menuId}/schedules` sets its schedule, and `GET`, `DELETE` read and remove menus.
+  - **Categories, products and addon groups**: `POST …/{slug}/menus/{menuId}/categories`, `PATCH` and `DELETE …/{slug}/categories/{categoryId}`, `POST …/{slug}/categories/{categoryId}/products`, `POST …/{slug}/products/batch` (up to 50 products in one call), `PATCH` and `DELETE …/{slug}/products/{productId}`, and `GET`, `POST`, `PATCH` and `DELETE` for `…/{slug}/addon-groups`. Sizes and addons keep their ids when you send them back, so baskets on the website keep working.
+- **[LettBestilt MCP](/mcp)** now sets up a whole restaurant, with a new class of **configuration** tools.
+  - **Opening hours, delivery and settings**: `set_opening_hours`, `add_hours_override`, `update_hours_override`, `create_delivery_zone`, `update_delivery_zone` and `update_settings`, plus the read tools `get_opening_hours`, `list_delivery_zones` and `get_settings`.
+  - **The menu**: `create_menu` creates a menu that is turned off from a proposal the AI tool builds from the restaurant's menu, `add_category`, `update_category`, `add_products`, `update_product` and `set_addon_group` edit it piece by piece (sizes and addons keep their ids), `set_menu_schedule` sets its schedule, and `publish_menu` puts it in service in one of [three ways](/mcp#publish-a-menu). The read tool `list_menus` lists every menu, and `get_menu` with `menuId` reads one menu, also when it is off.
+  - They call the partner API, so they validate and fail the same way. They never delete a menu, category, product, addon group, delivery zone or override: those are turned off with `isActive: false` or ended with `endDate`. They never remove a size or an addon either: `update_product` and `set_addon_group` send the whole set with the ids, and a set that leaves out an existing size or addon gives `422 VALIDATION_FAILED`; a person removes it in the dashboard or through the partner API. `publish_menu`, `set_menu_schedule`, `update_category`, `update_product` and `set_addon_group` are marked `destructiveHint`, so AI tools ask before they run them.
+  - The guide [Set up a restaurant from scratch](/mcp#set-up-a-restaurant-from-scratch) walks through the order: sandbox, settings, hours, delivery, menu, domains and webhooks, test order and go-live.
+- **A welcome card and `help` in LettBestilt MCP**: when you greet the AI tool or ask what it can do, it shows what it can do and a few things to try, and "hjelp" or "help" gives every tool, one area ("hjelp meny") or one tool with its fields and an example ("hjelp publish_menu"), in Norwegian or English. Claude Code also gets the prompts `/mcp__lettbestilt__welcome` and `/mcp__lettbestilt__help`, where `help` takes `language` (`nb` or `en`). See [Getting started and help](/mcp#getting-started-and-help).
+- **`create_sandbox`** in LettBestilt MCP creates a sandbox with a test partner key. It never returns a restaurant key; a person creates it in LettBestilt Partner.
+- **[Your own partner account](/partner-setup-api#your-own-partner-account) through the API**, with only the partner key: `GET /me`, `GET` and `PATCH /brand` (also the light logo, and with white label the colours and font of your restaurant owners' dashboard), `POST /brand/logo` and `POST /brand/logo-light`, the sender domain (`GET`, `POST`, `DELETE /brand/sender-domain` and `POST …/verify`), `GET` and `PATCH /profile`, and news to your restaurants (`GET` and `POST /news`, `GET`, `PATCH` and `DELETE /news/{newsId}`, `POST /news/{newsId}/publish`). Reading needs no role; changes need a key created by an owner or administrator (`403 KEY_ROLE_FORBIDDEN`).
+- **LettBestilt MCP sets up your partner account** with 12 new tools, 52 in all: seven in a new class, **partner account**, and five read tools: `get_partner`, `get_partner_brand`, `set_partner_brand` (with a logo and a light logo up to 512 KB each, and with white label the dashboard colours and font), `get_partner_profile`, `update_partner_profile`, `get_sender_domain`, `set_sender_domain`, `check_sender_domain`, `list_partner_news`, `create_partner_news`, `update_partner_news` and `publish_partner_news`. They work with test and live partner keys, and the tools that change something have their own limit of 60 changes per hour per partner key. They never remove the logos (a new one replaces it) or the sender domain, never delete or archive news, never set your website, and never publish news to real restaurants: with a live key the AI tool writes the draft and a person publishes it (`403 HUMAN_REQUIRED`). See [Your partner account](/mcp#your-partner-account).
+
+### Changed
+
+- **Menu `priority`**: `PATCH …/menus/{menuId}` takes `priority` (0–100), and `GET …/menus`, `list_menus` and `publish_menu` show and take it. When several menus have a time window at the same moment, the highest priority is shown. A menu that replaces the main menu for a period needs dates, a full-week schedule **and** a priority higher than the main menu's; see [Publish the menu](/partner-setup-api#6-publish-the-menu).
+- `POST …/menus` and committing a menu import count the proposal's products against the product limit (`409 PRODUCT_LIMIT`), and `PATCH …/menus/{menuId}` cleans `name` (`textCleaned`).
+- `PUT …/menus/{menuId}/schedules` rejects unknown fields on a row with `422`.
+- A restaurant has at most 200 opening hours overrides (`409 HOURS_OVERRIDE_LIMIT`).
+- Addon groups: `minSelect` above the number of available addons gives `422`, `isRequired` must agree with `minSelect`, and a required `GLOBAL` group comes back with a warning.
+- The partner's 30 changes per minute are counted per environment, so testing with test keys never slows down changes to a real restaurant.
+- `PATCH /news/{newsId}` with an empty `restaurantSlugs` on news that is not for all restaurants gives `422`.
+- Free text in settings, delivery zones and opening hours overrides is cleaned like menu text, with `textCleaned` in the response when something was removed.
+- The legal fields are locked after the owner has signed the customer agreement in the restaurant dashboard too (`LEGAL_LOCKED`).
+- The go-live check has a new point, `delivery`: a warning when delivery is on without an active delivery zone.
+- LettBestilt MCP accepts requests up to 1 MB (was 64 KB), so a menu of a couple of hundred products, or a logo, fits in one call.
+- LettBestilt MCP's configuration tools have their own limit of 300 changes per hour per partner key, separate from the 60 per hour for setup tools. `RATE_LIMITED` from these limits and from the partner API carries `details.retryAfterSeconds`.
+- Products and addon groups have a `version` in `GET …/menus/{menuId}`, `GET …/addon-groups` and every write response. `PATCH …/products/{productId}` and `PATCH …/addon-groups/{groupId}` take it as `expectedVersion` and give `409 CHANGED` when the product or group changed after you read it. It is optional in the API; LettBestilt MCP requires it in `update_product` and in `set_addon_group` with `groupId`.
+- The category limit is 60 per menu, subcategories included (it was 60 per restaurant), also in `POST …/menus` and when committing a menu import.
+- Write responses for menus, categories, products and addon groups have `warnings`, a list of `{ path, message }`: prices above 0 and under 500 øre, which look like kroner, and a required `GLOBAL` addon group. Nothing is rejected. The price warnings used to come from LettBestilt MCP only.
+- Write responses for menus, categories, products and addon groups say that `GET /api/v1/menu` is cached for up to six minutes (they said five).
+- The messages in `details.issues` of `422 VALIDATION_FAILED` are in Norwegian throughout; some were in English before.
+- A JSON body over 1 MB gives `413 PAYLOAD_TOO_LARGE`.
+- `imageUrl` on a product must be an `https` image from LettBestilt's image library (active images only) or one uploaded to LettBestilt.
+- Committing a menu import through the partner API cleans the text like `POST …/menus` (line breaks in descriptions are kept). Uploading and committing a menu import give `409 DEMO_RESTAURANT` on LettBestilt's demo restaurant.
+- Deleting a product that is part of a combo or in upsell turns it off (`soft: true`), with a `notice` that says where it is used.
+- An open day or opening hours override where `opensAt` equals `closesAt` gives `422`.
+- `POST …/delivery-zones` with fields for the other zone type, such as `postalCodes` on a `RADIUS` zone, gives `422`, like `PATCH` already did.
+- `logoUrl`, `coverImageUrl` and `googleReviewUrl` in the settings are at most 2048 characters (`website` stays at 320).
+- `LOGO_NOT_ALLOWED` and `WHITE_LABEL_REQUIRED` name the field in `details.field`.
+- A free e-mail service, such as `gmail.com`, cannot be registered as a sender domain (`422 VALIDATION_FAILED` on `domain`).
+- Through LettBestilt MCP, sending `website` or `googleReviewUrl` for a real restaurant that is live gives `403 HUMAN_REQUIRED`: a person changes them.
+- The partner API has a limit of 600 calls per minute per partner across all its keys, in addition to 120 per partner key; LettBestilt MCP has its own 600 messages per minute per partner.
+- The API log shows calls to `…/go-live-review` with their route.
+- New error codes: `DEMO_RESTAURANT`, `LEGAL_LOCKED`, `HOURS_OVERRIDE_NOT_FOUND`, `DELIVERY_ZONE_NOT_FOUND`, `DELIVERY_ZONE_LIMIT`, `HOURS_OVERRIDE_LIMIT`, `MENU_NOT_FOUND`, `MENU_IS_DEFAULT`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `ADDON_GROUP_NOT_FOUND`, `CATEGORY_NOT_EMPTY`, `CATEGORY_LIMIT`, `PRODUCT_LIMIT` and `ADDON_GROUP_LIMIT`, `SANDBOX_TEST_KEY_REQUIRED` in LettBestilt MCP, and for your own account `KEY_ROLE_FORBIDDEN`, `WHITE_LABEL_REQUIRED`, `HUMAN_REQUIRED`, `LENGTH_REQUIRED`, `LOGO_NOT_ALLOWED`, `FILE_TOO_LARGE`, `UPLOAD_FAILED`, `PARTNER_ARCHIVED`, `PARTNER_NEWS_FORBIDDEN`, `NEWS_NOT_FOUND`, `NOT_DRAFT`, `NOT_PUBLISHED`, `NOT_SCHEDULED`, `NOT_CLAIMABLE`, `NO_RECIPIENTS`, `IMAGE_NOT_ALLOWED`, `SENDER_DOMAIN_ALREADY_SET`, `SENDER_DOMAIN_NOT_SET`, `DOMAIN_EXISTS`, `SENDER_DOMAIN_REJECTED` and `EMAIL_SERVICE_UNAVAILABLE`, and `PAYLOAD_TOO_LARGE` for a JSON body over 1 MB (in LettBestilt MCP a tool error for a single call that is too large). See [Errors](/errors).
+
 ## 2026-10-19: Domains, owner invitations, go-live approval, menu import and LettBestilt MCP
 
 **Only additive changes in `/api/v1`.** No endpoint, field or event was removed or renamed.

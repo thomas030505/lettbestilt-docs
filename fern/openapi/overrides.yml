@@ -1,231 +1,97 @@
-# Presentation layer for the API reference.
+# Fern overrides for the API reference.
 #
-# `openapi.json` next to this file is a verbatim copy of the platform's spec
-# (`src/app/api/v1/openapi.json/route.ts`) and is meant to be synced
-# automatically. Never edit it by hand. Everything the docs need on top of it
-# lives here: English text, tags, operation IDs, examples, missing error
-# responses and the webhook reference.
+# `openapi.json` next to this file is a verbatim copy of the platform spec
+# (`src/app/api/v1/openapi.json/route.ts` in the platform repo), and the platform
+# spec is the source of every text: summaries, descriptions and parameter and
+# field descriptions are written in English there (decision 20.10.2026). Do not
+# add text overrides here; change the text in the platform spec and copy it over.
+#
+# What this file still adds:
+# - tags: the section tags and their descriptions, and the tag of every
+#   operation;
+# - operationId on every operation, and x-fern-type-name on some schemas
+#   (names in generated SDKs);
+# - request and response examples;
+# - error responses the platform spec does not list yet, the webhook
+#   reference (`webhooks` and the *Data schemas) and the webhook header
+#   parameters. These are additions, not translations; they belong in the
+#   platform spec and should move there in a later round.
 #
 # How Fern merges this file into the spec (fern-api 5.152.2):
 # - Objects are deep-merged; keys here win.
 # - `parameters` are matched by `in` + `name`, so order does not matter.
-# - Other arrays of objects (`oneOf`, `servers`) are merged by index.
-# - Arrays of plain values (`enum`, `tags`, `required`) are replaced.
-#
-# When the platform spec gets the same text, delete it here.
-
-info:
-  title: LettBestilt API
-  description: >-
-    The LettBestilt API lets you build restaurant websites on top of
-    LettBestilt: menus, orders, payments, order tracking, table reservations,
-    coupons and webhooks. All amounts are integers in øre (1 NOK = 100 øre).
-    Timestamps are ISO 8601 in UTC. The restaurant is identified by its `slug`.
-
-# The platform spec points at the bare domain, which redirects to www and
-# drops the Authorization header on the way.
-servers:
-  - url: https://www.lettbestilt.no
-    description: Production
+# - Other arrays of objects (`oneOf`, `servers`, `tags`) are merged by index.
+#   The platform spec has one tag, Partner, at index 0; it is listed first
+#   here by name only, so its description comes from the platform spec.
+# - Arrays of plain values (`enum`, `tags` on an operation, `required`) are replaced.
 
 tags:
+  - name: Partner
   - name: Restaurant and menu
-    description: >-
-      The restaurant's profile, capabilities, menu and current preparation
-      time.
+    description: The restaurant's profile, capabilities, menu and current preparation time.
   - name: Orders
     description: Create takeaway orders, track them and look up delivery addresses.
   - name: Reservations
     description: Offer reservation times and send table reservation requests.
   - name: Coupons and newsletter
     description: >-
-      Validate coupon codes, preview automatic promotions and sign customers up
-      for the restaurant's newsletter.
+      Validate coupon codes, preview automatic promotions and sign customers up for the restaurant's
+      newsletter.
   - name: Website
     description: Settings for the restaurant's own website.
   - name: Webhooks
     description: >-
-      Events LettBestilt sends to your endpoint. Every delivery is signed; see
-      the [webhooks guide](/webhooks) for how to verify it.
-  # The platform spec has only the Partner tag, at index 0. Tags are merged by
-  # index, so every tag above overwrites it and Partner must be listed here.
-  - name: Partner
-    description: >-
-      The LettBestilt Partner API, `/api/v1/partner`. The partner key (`lbp_…`) alone lists
-      and creates restaurants. Everything about one existing restaurant also
-      needs that restaurant's own key in `X-LettBestilt-Restaurant-Key`. Server
-      to server only. See the [LettBestilt Partner API guide](/partner-api).
-
+      Events LettBestilt sends to your endpoint. Every delivery is signed; see the [webhooks guide](/webhooks)
+      for how to verify it.
 paths:
-  # ---------------------------------------------------------------------------
-  # Restaurant and menu
-  # ---------------------------------------------------------------------------
   /api/v1/restaurant:
     get:
       operationId: getRestaurant
-      tags: [Restaurant and menu]
-      summary: Get the restaurant
-      description: |-
-        Returns the restaurant's public profile: name, branding (logo, colors, font), contact details, visiting address, capabilities, current preparation time and the newsletter popup. Use it for headers, footers and contact pages; it is much smaller than `GET /menu`.
-
-        - `restaurant.capabilities` is the stable, dashboard-controlled answer to what the restaurant offers: pickup, delivery, reservations and payment. The older `restaurant.payment` object is kept for existing clients.
-        - `restaurant.address` is the visiting address, or `null`. See `Address`.
-        - `restaurant.newsletterPopup` is set when the popup is enabled and linked to an active coupon, otherwise `null`. The coupon code is never included here; `POST /newsletter/signup` returns it.
-        - `restaurant.prepTime` includes rush, but this response is cached at the edge (60 s, plus 600 s stale-while-revalidate). Show the number from `GET /prep-time` in checkout.
-        - `defaultPrepMinutes` and `defaultDeliveryMinutes` are base times **without** rush. Do not show them directly.
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug, which is also its LettBestilt subdomain (`{slug}.lettbestilt.no`).
+      tags:
+        - Restaurant and menu
       responses:
         "200":
-          description: The restaurant.
           content:
             application/json:
               schema:
-                description: >-
-                  Only some fields are described here. The payload also includes
-                  `id`, `name`, `slug`, `description`, `cuisineType`, `currency`,
-                  `locale`, logo, favicon, cover image, colors, `fontFamily`,
-                  `email`, `phone`, `website`, `googleReviewUrl`, the verified
-                  `tenantDomains`, `payment` and `newsletterPopup`.
                 properties:
                   restaurant:
                     x-fern-type-name: Restaurant
-        "400":
-          description: "`MISSING_SLUG`: the `slug` query parameter is missing."
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
-
   /api/v1/menu:
     get:
       operationId: getMenu
-      tags: [Restaurant and menu]
-      summary: Get the menu
-      description: |-
-        Returns everything a menu page and checkout need in one call: the restaurant (branding, capabilities, opening hours, special opening hours, delivery zones and shared add-on groups), the active menus, categories with products, variants, add-ons and allergens, code-based coupons, automatic promotions, the allergen list and upsell products.
-
-        **Only what can be ordered now.** `menus` and `categories` contain only the menus that are active when the response is built: the validity period (`startsOn`/`endsOn`) is checked first, then the schedules, and the default menu is the fallback. `upsell.products` is filtered the same way. Products and add-ons the restaurant has hidden or marked unavailable are left out.
-
-        **Two sets of opening hours.** `restaurant.openingHours` are the kitchen's hours and the only set that decides whether an order is accepted. Always gate the ordering flow on these. `restaurant.venueHours` are the venue's hours (when the doors are open) and are for display only. An empty `venueHours` means the venue follows the kitchen; show `openingHours` instead.
-
-        **Caching.** The response is cached at the edge (30 s, plus 300 s stale-while-revalidate) and carries a weak `ETag`. Send it back in `If-None-Match` to get `304 Not Modified`. Because of the cache, show the preparation time from `GET /prep-time`, not from `restaurant.prepTime`.
-
-        **Address.** `restaurant.address` is the visiting address, or `null`: the same object as in `GET /restaurant`. Use it on the contact page and for `address` and `geo` in Restaurant JSON-LD.
-
-        **Allergens.** `products[].allergens` are codes. Look them up in the top-level `allergens` list, which always comes in the same order.
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug, which is also its LettBestilt subdomain (`{slug}.lettbestilt.no`).
-        - name: If-None-Match
-          in: header
-          description: The `ETag` from an earlier response. If the menu has not changed, the response is `304 Not Modified` with no body.
+      tags:
+        - Restaurant and menu
       responses:
         "200":
-          description: The menu, with a weak `ETag` and `Cache-Control` headers.
           content:
             application/json:
               schema:
-                description: >-
-                  Only some fields are described here. The full payload also
-                  includes `allergens`, `restaurant.deliveryZones`,
-                  `restaurant.hoursOverrides` (special opening hours),
-                  `restaurant.addonGroups`, branding, contact details and the
-                  texts for the tracking page and receipt.
                 properties:
                   restaurant:
                     x-fern-type-name: MenuRestaurant
-                    properties:
-                      openingHours:
-                        description: >-
-                          The kitchen's opening hours. The only set that gates
-                          ordering: the server rejects an order outside these
-                          hours.
-                      venueHours:
-                        description: >-
-                          The venue's opening hours (when the doors are open).
-                          Display only: never use them to decide whether
-                          ordering is possible. An empty array means the venue
-                          follows the kitchen, so show `openingHours` instead.
-                  menus:
-                    description: >-
-                      Only menus that are active when the response is built
-                      (validity period, then schedule, then the default menu as
-                      fallback). The response is cached at the edge, so also
-                      hide a menu on the client when today's date in Oslo is
-                      before `startsOn` or after `endsOn`. A missing field means
-                      no limit.
                   categories:
-                    description: Top-level categories on the active menus, with their products.
                     items:
                       x-fern-type-name: Category
-                  coupons:
-                    description: >-
-                      Code-based coupons, without the code itself. The customer
-                      types the code; `POST /coupons/validate` checks it.
-                  promotions:
-                    description: >-
-                      Automatic promotions. Show them as banners; the server
-                      applies the best match when the order is created.
                   upsell:
                     x-fern-type-name: Upsell
-                    description: >-
-                      Products the restaurant wants to suggest in the cart, or
-                      `null` if upsell is not set up. `mode` tells whether the
-                      list is picked by popularity or by hand.
                     properties:
                       products:
-                        description: >-
-                          Only active, available products on menus that are
-                          active now. (Before October 2026, products on inactive
-                          menus were also returned.)
                         items:
                           x-fern-type-name: UpsellProduct
-                          properties:
-                            allowedFulfillment:
-                              description: Same as `Product.allowedFulfillment`. `null` means both.
-        "304":
-          description: "Not modified: the `If-None-Match` ETag matched."
         "400":
           description: "`MISSING_SLUG`: the `slug` query parameter is missing."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
-
   /api/v1/prep-time:
     get:
       operationId: getPrepTime
-      tags: [Restaurant and menu]
-      summary: Get the preparation time
-      description: |-
-        Returns the current preparation time: base time plus rush, already added up. This is the number to show as "ready in about X min" on the menu and in checkout, and exactly what `POST /orders` uses to set `estimatedReadyAt` on an as-soon-as-possible order.
-
-        It is a separate endpoint because `/restaurant` and `/menu` are cached at the edge for up to 5–11 minutes, and rush is exactly when that delay hurts. This response is never cached (`no-store`). Cache it yourself for 20–30 seconds, and fetch it again when checkout opens.
-
-        Same authentication as the rest of the API (API key or trusted browser origin), so you can call it from the browser on a verified domain. Rate limit: 600 requests per 60 seconds per slug and IP.
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug.
+      tags:
+        - Restaurant and menu
       responses:
         "200":
-          description: The current preparation time.
           content:
             application/json:
               example:
@@ -235,73 +101,11 @@ paths:
                   rushDelayMinutes: 15
                   basePickupMinutes: 20
                   baseDeliveryMinutes: 45
-        "400":
-          description: "`MISSING_SLUG`: the `slug` query parameter is missing."
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
-        "429":
-          description: "`RATE_LIMITED`: more than 600 requests in 60 seconds for this slug and IP."
-
-  # ---------------------------------------------------------------------------
-  # Orders
-  # ---------------------------------------------------------------------------
   /api/v1/orders:
     post:
       operationId: createOrder
-      tags: [Orders]
-      summary: Create an order
-      description: |-
-        Creates a takeaway order for pickup or delivery. The server prices every line from its own data and ignores any prices you send. Show the `totals` it returns.
-
-        - **Online payment** (`paymentMethod: "STRIPE"`): the response includes `stripeUrl`, SagaPay's hosted payment page. Redirect the customer there. The field name is historical and does not mean Stripe.
-        - **Cash** (`paymentMethod: "CASH"`): there is no payment link, and the order goes straight to the kitchen.
-        - **Sandbox** (test key on a sandbox restaurant): `stripeUrl` points to LettBestilt's test payment page instead of SagaPay. **Betal (test)** marks the order paid and sends `ORDER_PAID`; **Avbryt** (cancel) sends the customer to `cancelUrl`. No money moves. See [Payments](/payments#testing-payments-in-a-sandbox).
-        - **Retries**: send an `Idempotency-Key` header and retry with the same key after a network error. A replay returns the original order instead of creating a new one.
-        - **Price check**: send `expectedTotal`, the total you showed the customer, to get `409 PRICE_CHANGED` instead of an order at a higher price.
-
-        Business rules are checked here as well: opening hours, menu schedules, sold-out products, required add-ons, delivery zones and coupon rules. When one fails, `error.message` explains it in Norwegian and can be shown to the customer.
-
-        Table reservations are not orders. `orderType` only accepts `TAKEAWAY`, and `DINE_IN` fails with `422 VALIDATION_FAILED`; use `POST /reservations` instead.
-
-        Rate limit: 10 requests per 60 seconds per slug and IP. Walkthrough: [Build an ordering flow](/build-an-ordering-flow).
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug.
-        - name: successUrl
-          in: query
-          description: >-
-            Where the customer returns after paying. Put `{TOKEN}` in the URL to
-            get the order's `publicToken` back, for example
-            `https://www.pizzaroma.no/order/{TOKEN}`. Must be `https` on
-            lettbestilt.no, on a verified domain of the restaurant or its
-            partner, or on a domain LettBestilt has approved; anything else fails
-            with `400 INVALID_SUCCESS_URL`. Add and verify a new host on the
-            restaurant's Domains tab in LettBestilt Partner, or with
-            `POST /api/v1/partner/restaurants/{slug}/domains`. If you leave it out,
-            the customer returns to `/order/{TOKEN}?payment=success` on the
-            restaurant's domain. In a sandbox you can leave it out: the customer
-            then returns to the test payment page, which shows that the order is
-            paid.
-        - name: cancelUrl
-          in: query
-          description: >-
-            Where the customer returns if they cancel or the payment fails. Same
-            rules as `successUrl` (`400 INVALID_CANCEL_URL`). If you leave it
-            out, the customer returns to the front page of the restaurant's own
-            domain, or to checkout on `{slug}.lettbestilt.no`. In a sandbox the
-            customer returns to the test payment page, which shows that the
-            payment was cancelled.
-        - name: Idempotency-Key
-          in: header
-          description: >-
-            Optional. 16–128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`,
-            `-`); a UUID works well. A request with a key that was already used
-            for this restaurant returns that earlier order and its payment link
-            instead of creating a new one. The body of the replay is not
-            compared, so create a new key for every new checkout attempt.
+      tags:
+        - Orders
       requestBody:
         content:
           application/json:
@@ -309,7 +113,8 @@ paths:
               items:
                 - productId: cm1pza0001margherita
                   variantId: cm1pza0002medium
-                  addonIds: [cm1pza0003extracheese]
+                  addonIds:
+                    - cm1pza0003extracheese
                   quantity: 2
                   notes: Godt stekt
               fulfillment: PICKUP
@@ -321,7 +126,6 @@ paths:
               locale: nb
       responses:
         "200":
-          description: The order was created, or an earlier order was returned for the same `Idempotency-Key`.
           content:
             application/json:
               example:
@@ -336,49 +140,19 @@ paths:
                 stripeUrl: https://pay.example.com/checkout/abc123
         "400":
           description: >-
-            `MISSING_SLUG`, `INVALID_JSON`, `INVALID_SUCCESS_URL`,
-            `INVALID_CANCEL_URL`, or `BAD_REQUEST`: an invalid `Idempotency-Key`,
-            the restaurant is closed at the requested time, or it does not offer
+            `MISSING_SLUG`, `INVALID_JSON`, `INVALID_SUCCESS_URL`, `INVALID_CANCEL_URL`, or `BAD_REQUEST`: an
+            invalid `Idempotency-Key`, the restaurant is closed at the requested time, or it does not offer
             the chosen fulfillment or payment method.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "409":
-          description: >-
-            No new order was created, and `publicToken` is never returned.
-            `PRICE_CHANGED`: you sent `expectedTotal` and the server's total is
-            higher; `error.details` is `{ expectedTotal, actualTotal, currency }`.
-            Fetch the menu again, show the new total and let the customer
-            confirm. `PAYMENT_PENDING`: a replay of an `Idempotency-Key` whose
-            order was just created while its payment link is still being made;
-            wait a couple of seconds and retry with the same key.
-            `PAYMENT_INCOMPLETE`: the same, but the order is too old for the
-            first call to still be running, so the payment link was never created
-            (`error.details` is `{ orderId }`); start again with a new key.
-            `IDEMPOTENCY_CONFLICT`: the `Idempotency-Key` was already used by a
-            table reservation. Orders and reservations share one key space per
-            restaurant; create a new key.
-        "422":
-          description: >-
-            `VALIDATION_FAILED`: the body failed validation
-            (`error.details.issues` lists the fields), or the order breaks a
-            rule, such as a sold-out product, a missing required add-on, an
-            address outside the delivery zones or a coupon that does not apply;
-            `error.message` explains it in Norwegian. `FULFILLMENT_NOT_ALLOWED`:
-            a product can only be picked up or only be delivered, and the order
-            asked for the other; `error.details` is `{ productId, productName,
-            allowedFulfillment, requestedFulfillment }`.
-        "429":
-          description: "`RATE_LIMITED`: more than 10 orders in 60 seconds for this slug and IP. See `Retry-After`."
         "502":
           description: "`PAYMENT_PROVIDER_INVALID`: the payment provider returned an unusable payment link."
           content:
@@ -387,113 +161,47 @@ paths:
                 $ref: "#/components/schemas/Error"
         "503":
           description: >-
-            `INTERNAL_ERROR`: the payment provider did not respond. The order was
-            saved without a payment link. Start again with a new
-            `Idempotency-Key`, or offer cash.
+            `INTERNAL_ERROR`: the payment provider did not respond. The order was saved without a payment
+            link. Start again with a new `Idempotency-Key`, or offer cash.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /api/v1/orders/{token}:
     get:
       operationId: getOrder
-      tags: [Orders]
-      summary: Track an order
-      description: |-
-        Returns an order by its `publicToken`: status, lines, totals, times and payment status. No API key is needed, because the token is the secret. Share it only with the customer.
-
-        If an online order is still waiting for payment, the server checks with the payment provider before it responds. Polling this endpoint after the customer returns to your `successUrl` therefore gives you a reliable payment status.
-
-        `order.status` follows this path:
-
-        - Online payment: `AWAITING_PAYMENT` → `PAID` → `CONFIRMED` → `PREPARING` → `READY_FOR_PICKUP` (pickup) or `OUT_FOR_DELIVERY` (delivery) → `COMPLETED`.
-        - Cash: starts at `CONFIRMED`.
-        - `CANCELLED` if the restaurant cancels the order. `FAILED` if the online payment failed.
-        - Reservation tokens from `POST /reservations` work here too: `PENDING_APPROVAL`, then `CONFIRMED` or `CANCELLED`.
-
-        `order.restaurant.address` is the pickup location: the restaurant's visiting address, or `null`. If you render a map, check both `order.restaurant.trackingShowMap` and `address.latitude`: the owner can turn the map off, and a restaurant without a map point has no coordinates.
-
-        The response is `private, no-store`. Rate limits: 60 requests per 60 seconds per IP, and 30 per 60 seconds per token.
-      parameters:
-        - name: token
-          in: path
-          description: The `publicToken` from `POST /orders` or `POST /reservations`.
+      tags:
+        - Orders
       responses:
         "200":
-          description: The order.
           content:
             application/json:
               schema:
-                description: >-
-                  Only some fields are described here. The payload contains the
-                  whole order: `status`, `orderNumber`, `fulfillment`, the lines
-                  in `items`, `subtotal`, `deliveryFee`, `discount`, `total`,
-                  `estimatedReadyAt`, delivery details, the customer's name and
-                  `payment` (provider, status, amount).
                 properties:
                   order:
                     x-fern-type-name: Order
                     properties:
-                      requestedPickupAt:
-                        description: >-
-                          The agreed pickup or delivery time, and the time to show
-                          the customer. The restaurant can move it after the
-                          order is placed: if `pickupTimeRevisedAt` is set, this
-                          is no longer the time the customer chose.
-                      originalRequestedPickupAt:
-                        description: >-
-                          The time the customer originally chose, frozen the
-                          first time the restaurant moves it. `null` means the
-                          time has never been moved.
-                      pickupTimeRevisedAt:
-                        description: >-
-                          When the restaurant last moved the time: either the
-                          agreed time on a pre-order (`requestedPickupAt`) or,
-                          during rush, the estimated ready time on an
-                          as-soon-as-possible order (`estimatedReadyAt`, and then
-                          `originalRequestedPickupAt` is `null`). Use it to show
-                          "the restaurant has changed the time" instead of
-                          changing the time silently. `null` means never moved.
                       restaurant:
                         x-fern-type-name: OrderRestaurant
-                        properties:
-                          trackingShowMap:
-                            description: The owner's setting for whether the tracking page shows a map to the pickup location.
         "400":
           description: "`MISSING_TOKEN`: the token is not in a valid format."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "404":
-          description: "`ORDER_NOT_FOUND`: no order has this token."
         "429":
           description: "`RATE_LIMITED`: too many requests from this IP or for this token."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /api/v1/address-search:
     get:
       operationId: searchAddresses
-      tags: [Orders]
-      summary: Search delivery addresses
-      description: |-
-        Searches Norwegian addresses (from Kartverket) for your checkout. Use the coordinates as `deliveryLat` and `deliveryLng` for radius-based delivery zones (`RADIUS`), and the postal code as `deliveryPostalCode` for postal-code zones (`POSTAL_CODES`).
-
-        If the restaurant does not offer delivery, `hits` is empty. Rate limit: 30 requests per 60 seconds per IP.
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug.
-        - name: q
-          in: query
-          description: What the customer typed, 3–100 characters. For example a street name and number.
+      tags:
+        - Orders
       responses:
         "200":
-          description: Matching addresses.
           content:
             application/json:
               example:
@@ -504,76 +212,32 @@ paths:
                     city: Tønsberg
                     lat: 59.2676
                     lng: 10.4076
-        "400":
-          description: "`MISSING_SLUG`, or `BAD_REQUEST` when `q` is shorter than 3 or longer than 100 characters."
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "429":
-          description: "`RATE_LIMITED`: more than 30 searches in 60 seconds from this IP."
         "502":
           description: "`INTERNAL_ERROR`: the address lookup failed."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
-  # ---------------------------------------------------------------------------
-  # Reservations
-  # ---------------------------------------------------------------------------
   /api/v1/dine-in/availability:
     get:
       operationId: getReservationAvailability
-      tags: [Reservations]
-      summary: List available reservation times
-      description: |-
-        Returns the reservation times for one date and party size, in 15-minute slots. `available: true` means at least one table, or combination of tables, that can be booked online fits the party at that time.
-
-        Slots are left out when they are outside opening hours, too late in the day (after closing time minus the restaurant's service time), inside the restaurant's minimum notice, or after the restaurant has closed online booking for that day. A party larger than `maxPartySize` gets an empty list.
-
-        If the restaurant does not take table reservations, the response is `{ "enabled": false, "slots": [] }`.
-
-        Rate limit: 60 requests per 60 seconds per slug and IP. Cached at the edge for 15 seconds (plus 30 s stale-while-revalidate). Walkthrough: [Table reservations](/reservations).
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug.
-        - name: date
-          in: query
-          description: The date as `YYYY-MM-DD`, in Oslo time.
-        - name: partySize
-          in: query
-          description: Number of guests. Defaults to 2.
+      tags:
+        - Reservations
       responses:
         "200":
-          description: The slots for the date.
           content:
             application/json:
               schema:
                 properties:
-                  enabled:
-                    description: Whether the restaurant takes table reservations.
-                  maxPartySize:
-                    description: The largest party that can book online. Only present when `enabled` is `true`.
                   slots:
                     items:
                       x-fern-type-name: ReservationSlot
-                      properties:
-                        time:
-                          description: Start time as `HH:mm` in Oslo time, for display.
-                        iso:
-                          description: Start time in UTC (ISO 8601). Send this as `dineInAt` to `POST /reservations`.
-                        available:
-                          description: Whether a table is free for the party at this time.
               example:
                 enabled: true
                 maxPartySize: 8
@@ -584,75 +248,14 @@ paths:
                   - time: "17:15"
                     iso: "2026-10-16T15:15:00.000Z"
                     available: false
-        "400":
-          description: "`MISSING_SLUG`, or `BAD_REQUEST` for an invalid `date` or `partySize`."
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
-        "429":
-          description: "`RATE_LIMITED`: more than 60 requests in 60 seconds for this slug and IP."
-
   /api/v1/reservations:
     post:
       operationId: createReservation
-      tags: [Reservations]
-      summary: Request a table reservation
-      description: |-
-        Creates a table reservation **request**. The restaurant approves or rejects it from its dashboard, and the guest gets an email when that happens (if you sent `guestEmail`). A new request always has `status: "PENDING_APPROVAL"` and `tableId: null`; the table is assigned on approval.
-
-        Follow the status with `GET /orders/{token}` using `publicToken`, or listen for the `RESERVATION_APPROVED` and `RESERVATION_REJECTED` webhooks. `reservationId` is the ID that webhooks call `orderId`.
-
-        The server checks the party size, the minimum notice and whether online booking is open. It does not check the time against opening hours or existing bookings, so only offer times from `GET /dine-in/availability`.
-
-        `Idempotency-Key` is supported. A replay with the same key and the same body returns the existing request with status `200` and `idempotent: true`; the same key with a different body returns `409 IDEMPOTENCY_CONFLICT`.
-
-        Rate limit: 20 requests per 60 seconds per slug and IP. Walkthrough: [Table reservations](/reservations).
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug.
-        - name: Idempotency-Key
-          in: header
-          description: Optional. 16–128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`).
+      tags:
+        - Reservations
       requestBody:
         content:
           application/json:
-            schema:
-              properties:
-                dineInAt:
-                  description: Start time in UTC (ISO 8601). Use `iso` from `GET /dine-in/availability`.
-                partySize:
-                  description: Number of guests.
-                guestName:
-                  description: The guest's name.
-                guestEmail:
-                  description: >-
-                    Strongly recommended. Without it, the guest cannot be told
-                    when the request is approved or rejected.
-                guestPhone:
-                  description: The guest's phone number.
-                note:
-                  description: A note to the restaurant, for example about allergies or a high chair.
-                marketingOptIn:
-                  description: >-
-                    The guest's consent to marketing. Requires `guestEmail`; the
-                    consent is stored in the restaurant's subscriber list.
-                consentGivenAt:
-                  description: >-
-                    Optional. When the guest gave consent. Only allowed with
-                    `marketingOptIn: true`. If you leave it out, the server uses
-                    the time it received the request.
-                locale:
-                  description: Language of the emails to the guest.
-                attributedCampaignId:
-                  description: >-
-                    Campaign attribution: the value of `?lb_campaign=<id>` from a
-                    LettBestilt campaign link. The reservation counts as a
-                    conversion for that campaign. Optional metadata: an invalid
-                    or unknown ID is dropped silently and never blocks the
-                    reservation. Note that orders call this field
-                    `attributionCampaignId`.
             example:
               dineInAt: "2026-10-16T15:00:00.000Z"
               partySize: 4
@@ -663,19 +266,8 @@ paths:
               locale: nb
       responses:
         "201":
-          description: The request was created.
           content:
             application/json:
-              schema:
-                properties:
-                  reservationId:
-                    description: The reservation's ID. Webhooks call it `orderId`.
-                  publicToken:
-                    description: Use it with `GET /orders/{token}` to follow the status.
-                  orderNumber:
-                    description: The number the restaurant sees in its dashboard.
-                  tableId:
-                    description: Always `null` when the request is created. Assigned when the restaurant approves it.
               example:
                 reservationId: cm2res0001abcdefghijklmn
                 publicToken: cm2tok0002abcdefghijklmn
@@ -690,72 +282,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "409":
-          description: >-
-            Either `IDEMPOTENCY_CONFLICT` in the standard error envelope (the key
-            was already used with a different body, or by an order), or `ONLINE_BOOKING_CLOSED`
-            in an older, flat error shape (`{ "error": "…", "code":
-            "ONLINE_BOOKING_CLOSED" }`) when the restaurant has closed online
-            booking for that date or time.
-        "422":
-          description: >-
-            `VALIDATION_FAILED`; `DINE_IN_DISABLED` (the restaurant does not take
-            reservations, or has no tables that can be booked online);
-            `PARTY_TOO_LARGE`; `TOO_EARLY` (inside the restaurant's minimum
-            notice); or `BAD_REQUEST` for an invalid `dineInAt`.
-        "429":
-          description: "`RATE_LIMITED`: more than 20 requests in 60 seconds for this slug and IP."
-
-  # ---------------------------------------------------------------------------
-  # Coupons and newsletter
-  # ---------------------------------------------------------------------------
   /api/v1/coupons/validate:
     post:
       operationId: validateCoupon
-      tags: [Coupons and newsletter]
-      summary: Validate a coupon code
-      description: |-
-        Checks a code the customer typed against the cart, so you can show the discount before checkout. A well-formed request always gets `200`: read `valid`, and `reason` when it is `false`.
-
-        The discount is calculated again when the order is created; send the code as `couponCode` to `POST /orders`. A code replaces automatic promotions: an order gets either a code or the best automatic promotion, never both.
-
-        For this endpoint, `slug` goes in the **body**. Rate limit: 30 requests per 60 seconds per slug and IP. Guide: [Coupons and promotions](/coupons).
+      tags:
+        - Coupons and newsletter
       requestBody:
         content:
           application/json:
             schema:
               properties:
-                slug:
-                  description: The restaurant's slug. Sent in the body for this endpoint.
-                code:
-                  description: The code the customer typed. Not case-sensitive.
-                subtotal:
-                  description: The cart subtotal in øre, including add-ons.
                 cart:
                   items:
                     x-fern-type-name: CouponCartLine
-                    properties:
-                      quantity:
-                        description: Number of units on the line. Counts units for `BUNDLE` offers ("X for Y kr").
-                      variantName:
-                        description: >-
-                          Required for `FIXED_PRICE` promotions with prices per
-                          variant (for example `Medium` or `Stor`). Also used for
-                          `BUNDLE` offers limited to one size.
-                email:
-                  description: >-
-                    Optional. Required when the coupon is only for newsletter
-                    subscribers; without it the response is `reason:
-                    SUBSCRIBER_ONLY`. It also lets the server check
-                    once-per-customer codes early.
             example:
               slug: pizzaroma
               code: VELKOMMEN
@@ -770,50 +315,15 @@ paths:
               email: kari@example.com
       responses:
         "200":
-          description: >-
-            The result. Always `200` when the request is valid, also when the
-            code does not apply: then `valid` is `false` and `reason` says why.
           content:
             application/json:
               schema:
                 oneOf:
                   - x-fern-type-name: CouponValid
                     properties:
-                      discount:
-                        description: The discount in øre.
                       coupon:
                         x-fern-type-name: ValidatedCoupon
-                        properties:
-                          discountType:
-                            description: Treat unknown values as a general offer.
-                          discountValue:
-                            description: >-
-                              `PERCENT`: percent. `FIXED` and `FIXED_PRICE`: øre.
-                              `BUNDLE`: the price in øre for one bundle of
-                              `bundleQuantity` units, not the discount. Show
-                              `discount`.
-                          minimumOrder:
-                            description: Minimum subtotal in øre.
-                          bundleQuantity:
-                            description: "`BUNDLE` only: units per bundle."
-                          bundleTierKey:
-                            description: "`BUNDLE` only: only variants with this `addonTierKey` count."
-                          maxBundlesPerOrder:
-                            description: "`BUNDLE` only: the maximum number of bundles per order."
                   - x-fern-type-name: CouponNotValid
-                    properties:
-                      reason:
-                        description: >-
-                          Why the code does not apply. `NOT_APPLICABLE_TO_CART`
-                          is also returned when an "X for Y kr" (`BUNDLE`) offer
-                          has too few qualifying items in the cart.
-                      message:
-                        description: >-
-                          A ready-made Norwegian explanation you can show the
-                          customer as it is (added October 2026). For `BUNDLE`
-                          it tells "requires at least N items" apart from "does
-                          not give a lower price", which both have `reason:
-                          NOT_APPLICABLE_TO_CART`.
               example:
                 valid: true
                 discount: 5000
@@ -828,12 +338,6 @@ paths:
                   bundleQuantity: null
                   bundleTierKey: null
                   maxBundlesPerOrder: null
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
         "404":
           description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
           content:
@@ -852,40 +356,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /api/v1/coupons/preview-auto:
     post:
       operationId: previewAutomaticPromotion
-      tags: [Coupons and newsletter]
-      summary: Preview the automatic promotion
-      description: |-
-        Returns the discount the server would apply when the order is created, if the customer uses no coupon code. Use it to show a line such as "Offer: −50 kr" in the cart. The server evaluates promotions again in `POST /orders`, so this is for display only.
-
-        If no automatic promotion matches, the response is `{ "applies": false, "discount": 0 }`.
-
-        For this endpoint, `slug` goes in the **body**. Rate limit: 30 requests per 60 seconds per slug and IP. Guide: [Coupons and promotions](/coupons).
+      tags:
+        - Coupons and newsletter
       requestBody:
         content:
           application/json:
             schema:
               properties:
-                slug:
-                  description: The restaurant's slug. Sent in the body for this endpoint.
-                fulfillment:
-                  description: "`PICKUP` or `DELIVERY`. Send it so promotions limited to one of them are evaluated correctly."
-                deliveryFee:
-                  description: The delivery fee in øre. Needed for free-delivery promotions.
                 cart:
                   items:
                     x-fern-type-name: PromotionCartLine
-                    properties:
-                      quantity:
-                        description: Number of units on the line. Counts units for `BUNDLE` offers ("X for Y kr").
-                      variantName:
-                        description: >-
-                          Required for `FIXED_PRICE` promotions with prices per
-                          variant (for example `Medium` or `Stor`). Also used for
-                          `BUNDLE` offers limited to one size.
             example:
               slug: pizzaroma
               subtotal: 36800
@@ -898,9 +381,6 @@ paths:
                   lineTotal: 36800
       responses:
         "200":
-          description: >-
-            The best matching automatic promotion, or `applies: false` and
-            `discount: 0` when none matches.
           content:
             application/json:
               schema:
@@ -909,21 +389,6 @@ paths:
                     properties:
                       coupon:
                         x-fern-type-name: PreviewedPromotion
-                        properties:
-                          discountType:
-                            description: Treat unknown values as a general offer.
-                          discountValue:
-                            description: >-
-                              `PERCENT`: percent. `FIXED` and `FIXED_PRICE`: øre.
-                              `BUNDLE`: the price in øre for one bundle of
-                              `bundleQuantity` units, not the discount. Show
-                              `discount`.
-                          bundleQuantity:
-                            description: "`BUNDLE` only: units per bundle."
-                          bundleTierKey:
-                            description: "`BUNDLE` only: only variants with this `addonTierKey` count."
-                          maxBundlesPerOrder:
-                            description: "`BUNDLE` only: the maximum number of bundles per order."
               example:
                 applies: true
                 discount: 6900
@@ -937,30 +402,11 @@ paths:
                   bundleQuantity: 2
                   bundleTierKey: stor
                   maxBundlesPerOrder: null
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: no live restaurant has this slug."
-        "422":
-          description: "`VALIDATION_FAILED`: the body failed validation. `error.details.issues` lists the fields."
-        "429":
-          description: "`RATE_LIMITED`: more than 30 requests in 60 seconds for this slug and IP."
-
   /api/v1/newsletter/signup:
     post:
       operationId: signUpForNewsletter
-      tags: [Coupons and newsletter]
-      summary: Sign up for the newsletter
-      description: |-
-        Adds the customer to the restaurant's newsletter and returns the welcome coupon. Signing up again with the same email is safe: it returns the welcome coupon again and keeps the address subscribed.
-
-        The newsletter popup must be enabled in the restaurant's dashboard and linked to an active coupon. Otherwise the response is `404 POPUP_NOT_AVAILABLE` and nothing is stored. Check `restaurant.newsletterPopup` in `GET /restaurant` before you show a signup form; it also holds the popup's texts.
-
-        Rate limits: 5 requests per 60 seconds per IP, and 200 per hour per restaurant.
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug.
+      tags:
+        - Coupons and newsletter
       requestBody:
         content:
           application/json:
@@ -969,114 +415,43 @@ paths:
               name: Kari
       responses:
         "200":
-          description: The customer is subscribed. Show the welcome coupon.
           content:
             application/json:
-              schema:
-                properties:
-                  couponCode:
-                    description: The welcome code. Show it to the customer.
-                  discountType:
-                    description: The kind of discount the code gives.
-                  discountValue:
-                    description: "`PERCENT`: percent. `FIXED`: øre."
-                  successMessage:
-                    description: >-
-                      The restaurant's thank-you text. Replace `{{code}}` and
-                      `{{discount}}` before you show it.
               example:
                 couponCode: VELKOMMEN
                 discountType: PERCENT
                 discountValue: 10
-                successMessage: "Takk! Bruk koden {{code}} for {{discount}} rabatt."
+                successMessage: Takk! Bruk koden {{code}} for {{discount}} rabatt.
         "400":
           description: "`MISSING_SLUG` or `INVALID_JSON`."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key (a partner key, `lbp_…`, is always rejected here), and the request does not come from a trusted browser origin. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `POPUP_NOT_AVAILABLE` when the popup is turned off or has no active coupon."
-        "422":
-          description: "`VALIDATION_FAILED`: the body failed validation."
-        "429":
-          description: "`RATE_LIMITED`: too many signups from this IP or for this restaurant."
-
-  # ---------------------------------------------------------------------------
-  # Website
-  # ---------------------------------------------------------------------------
   /api/v1/site-gate:
     get:
       operationId: getSiteGate
-      tags: [Website]
-      summary: Get the password gate status
-      description: |-
-        Tells the restaurant's own website whether its preview password gate should be on, and which password applies. Call it from the website's middleware or server. Then the gate can be turned off from LettBestilt at launch, without a redeploy.
-
-        **Requires an API key.** Unlike the rest of the API, browser-origin authentication is not accepted here: the response contains a password and must never be readable from a browser. `password` is only returned when `enabled` is `true`. The response is never cached (`no-store`), so turning the gate off takes effect at once.
-
-        Unlike the other endpoints, this one also answers for restaurants that are not live yet, since they are the ones that need the gate. Rate limit: 600 requests per 60 seconds per slug and IP.
-      parameters:
-        - name: slug
-          in: query
-          description: The restaurant's slug.
+      tags:
+        - Website
       responses:
         "200":
-          description: The gate status.
           content:
             application/json:
               schema:
                 properties:
                   gate:
                     x-fern-type-name: SiteGate
-                    properties:
-                      enabled:
-                        description: Whether the website should ask for a password.
-                      password:
-                        description: >-
-                          Only present when `enabled` is `true`. `null` means the
-                          gate is on but no password is set. The website should
-                          then fail closed and stay locked.
               example:
                 gate:
                   enabled: true
                   password: forhandsvisning-2026
-        "400":
-          description: "`MISSING_SLUG`: the `slug` query parameter is missing."
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked API key, or the call came from a browser origin instead of with an API key. `KEY_EXPIRED`: the API key is valid but past its expiry date."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: no restaurant has this slug."
-        "429":
-          description: "`RATE_LIMITED`: more than 600 requests in 60 seconds for this slug and IP."
-
-  # ---------------------------------------------------------------------------
-  # Partner API. Responses shared by every partner endpoint use the same text,
-  # so a change here means a change in all of them.
-  # ---------------------------------------------------------------------------
   /api/v1/partner/restaurants:
     get:
       operationId: listPartnerRestaurants
-      tags: [Partner]
-      summary: List your restaurants
-      description: |-
-        **Partner key alone.** Lists the partner's restaurants, sorted by slug and paginated with a cursor. A test key sees only sandboxes; a live key would see only real restaurants. Archived restaurants are included (`archived: true`).
-
-        No contact details, payment status or customer data. Use `GET /partner/restaurants/{slug}` with the restaurant key for details.
-
-        This call is not written to the API log in LettBestilt Partner, because it is not about one restaurant.
-      parameters:
-        - name: cursor
-          in: query
-          description: "`nextCursor` from the previous page. Leave it out for the first page."
-        - name: limit
-          in: query
-          description: Restaurants per page, 1–100. Defaults to 25.
+      tags:
+        - Partner
       responses:
         "200":
-          description: One page of restaurants. `nextCursor` is `null` on the last page.
           content:
             application/json:
               example:
@@ -1089,33 +464,10 @@ paths:
                     archived: false
                     createdAt: "2026-10-16T08:12:00.000Z"
                 nextCursor: null
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked partner key, a restaurant key in `Authorization`, or a suspended or archived partner. `KEY_EXPIRED`: the partner key is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header; the partner API is server to server only."
-        "422":
-          description: "`VALIDATION_FAILED`: invalid `limit` or `cursor` (`error.details.issues`)."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key. See `Retry-After`."
     post:
       operationId: createPartnerRestaurant
-      tags: [Partner]
-      summary: Create a restaurant
-      description: |-
-        **Partner key alone.** With a test key, creates a sandbox: it is never live, has no ordering page on `{slug}.lettbestilt.no`, and a partner can have up to 20. Live partner keys are not available yet.
-
-        The response contains a new restaurant key with full access, in plain text **once**, in `restaurantKey.key`. Store it right away: every call about this restaurant needs it, and it is never shown again.
-
-        **`Idempotency-Key` is required** and is scoped per partner for 30 days:
-
-        - Same key, same body: `200` with the same restaurant, `restaurantKey: null`, `replayed: true`, a `message`, and the header `Idempotent-Replayed: true`. The restaurant key is not shown again. If you lost it (for example because the first response never arrived), create a new key for the restaurant in LettBestilt Partner.
-        - Same key, different body or environment, or a restaurant that has since been deleted or moved: `409 IDEMPOTENCY_CONFLICT`.
-
-        A slug that is already taken gives `409 SLUG_TAKEN` and does not count towards the limit. At most 10 creations per hour per partner key, and 20 per partner. Replays do not count.
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          description: "Required. 16–128 URL-safe characters (`a-z`, `A-Z`, `0-9`, `_`, `-`). Use one new key, for example a UUID, per restaurant you want to create."
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
@@ -1126,10 +478,7 @@ paths:
               pickupEnabled: true
               deliveryEnabled: false
       responses:
-        "200":
-          description: "Replay of the same `Idempotency-Key`: the same restaurant, `restaurantKey: null`, `replayed: true` and a `message`."
         "201":
-          description: Created. Store `restaurantKey.key` now; it is not shown again.
           content:
             application/json:
               example:
@@ -1146,630 +495,495 @@ paths:
                   name: Opprettet via partner-API
                   last4: x9Qa
                   environment: TEST
-                  scopes: ["*"]
+                  scopes:
+                    - "*"
                   key: lbs_test_cm2key0001abcdefghijklmn_q8Vt2mWkRb7LpZ3nDc5HsYf1JuE9aT0oGi4Nw6Kx9Qa
                 message: Lagre restaurantnøkkelen nå. Den vises ikke igjen.
-        "400":
-          description: "`IDEMPOTENCY_KEY_REQUIRED`: the `Idempotency-Key` header is missing or invalid. `INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: missing, invalid or revoked partner key, a restaurant key in `Authorization`, or a suspended or archived partner. `KEY_EXPIRED`: the partner key is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header; the partner API is server to server only."
-        "409":
-          description: "`SLUG_TAKEN`: the slug is in use. `SANDBOX_LIMIT`: the partner already has 20 sandboxes; delete one first. `IDEMPOTENCY_CONFLICT`: see above."
-        "422":
-          description: "`VALIDATION_FAILED`: `error.details.issues` lists the fields."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 10 creations per hour per key (20 per partner). See `Retry-After`."
-
   /api/v1/partner/restaurants/{slug}:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug. Must match the restaurant key in `X-LettBestilt-Restaurant-Key`.
     get:
       operationId: getPartnerRestaurant
-      tags: [Partner]
-      summary: Get one restaurant
-      description: |-
-        **Partner key + restaurant key.** Setup status, SagaPay status (real restaurants only; `null` for sandboxes), verified domains, webhooks (never the secret) and the restaurant's API keys (name, last four characters, environment, scopes, expiry). Also works for an archived restaurant.
-
-        No contact details or customer data.
-      responses:
-        "200":
-          description: The restaurant.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access (`error.details.requiredScope` is `*`)."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+      tags:
+        - Partner
     delete:
       operationId: deletePartnerRestaurant
-      tags: [Partner]
-      summary: Delete a sandbox, or archive a real restaurant
-      description: |-
-        **Partner key + restaurant key.**
-
-        - **A sandbox is deleted for good** (`result: "deleted"`), together with its keys. A second `DELETE` with the same restaurant key therefore gives `401`. Confirm with `GET /partner/restaurants` that the slug is gone.
-        - **A real restaurant is never deleted.** It is archived (`result: "archived"`): turned off and closed in `/api/v1`, while orders and accounting records are kept. Its webhooks are paused. The restaurant keys keep working against the partner API, so you can still read the restaurant, revoke keys and delete webhooks. Only LettBestilt can restore it. Archiving is idempotent: an archived restaurant gives `200` again.
-
-        At most 10 per hour per partner key.
+      tags:
+        - Partner
       responses:
         "200":
-          description: Deleted or archived.
           content:
             application/json:
-              schema:
-                properties:
-                  data:
-                    properties:
-                      archivedAt:
-                        description: Only when `result` is `archived`.
-                      wasLive:
-                        description: Whether the restaurant was live when it was archived (only the first time).
               example:
                 data:
                   result: deleted
                   slug: pizzaroma-test
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked (also the key of a sandbox you just deleted), the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "409":
-          description: "`RETENTION`: the sandbox has accounting records that must be kept (`error.details.blockers`). `CHANGED`: the restaurant changed during the call; nothing was deleted, try again."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute, or more than 10 deletions per hour, for this partner key."
-
   /api/v1/partner/restaurants/{slug}/keys/{keyId}:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
-      - name: keyId
-        in: path
-        description: The key's `id`, from `apiKeys` in `GET /partner/restaurants/{slug}`.
     delete:
       operationId: revokeRestaurantKey
-      tags: [Partner]
-      summary: Revoke a restaurant key
-      description: |-
-        **Partner key + restaurant key.** Revokes a restaurant key now (`graceHours: 0`, the default) or after up to 24 hours. The body is optional.
-
-        The key you are calling with (in `X-LettBestilt-Restaurant-Key`) cannot be revoked immediately (`409 KEY_IN_USE`); rotate it instead, or pass `graceHours`. Allowed for an archived restaurant too: access can always be removed.
-      requestBody:
-        content:
-          application/json:
-            schema:
-              properties:
-                graceHours:
-                  description: Hours until the key stops working, 0–24. Defaults to 0 (now).
-      responses:
-        "200":
-          description: Revoked, or scheduled. `revokedAt` is when the key stops working.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `KEY_NOT_FOUND` when the key does not belong to the restaurant."
-        "409":
-          description: "`KEY_IN_USE`: you tried to revoke the calling key immediately. `CHANGED`: the key changed at the same time; try again."
-        "422":
-          description: "`VALIDATION_FAILED`: `graceHours` is not an integer from 0 to 24."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
-
+      tags:
+        - Partner
   /api/v1/partner/restaurants/{slug}/keys/{keyId}/rotate:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
-      - name: keyId
-        in: path
-        description: The `id` of the key to replace.
     post:
       operationId: rotateRestaurantKey
-      tags: [Partner]
-      summary: Rotate a restaurant key
-      description: |-
-        **Partner key + restaurant key.** Creates a new key first. It gets the same scopes as the old one (not its expiry date) and is shown in plain text **once**, in `restaurantKey.key`, in the same shape as when a restaurant is created. The old key keeps working for `graceHours` (default 24), so you can deploy the new key without downtime. `effectiveAt` is when the old key stops working.
-
-        Not allowed for an archived restaurant (`409 RESTAURANT_ARCHIVED`). See [Rotating keys without downtime](/rotating-keys).
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
-            schema:
-              properties:
-                name:
-                  description: A name for the new key, 1–80 characters.
-                graceHours:
-                  description: How long the old key keeps working, 0–24 hours. Defaults to 24.
-                expiresOn:
-                  description: >-
-                    Optional expiry date for the new key (`YYYY-MM-DD`), from
-                    tomorrow up to two years ahead. The key works through that
-                    day, Norwegian time.
             example:
               name: Website (October 2026)
               graceHours: 24
-      responses:
-        "201":
-          description: The new key. Store `restaurantKey.key` now; it is not shown again.
-          content:
-            application/json:
-              schema:
-                properties:
-                  data:
-                    description: The new key's metadata.
-                  effectiveAt:
-                    description: When the old key stops working.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `KEY_NOT_FOUND` when the key does not exist or is already revoked."
-        "409":
-          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: the key changed at the same time; try again."
-        "422":
-          description: "`VALIDATION_FAILED`: `name` is missing, or `graceHours` or `expiresOn` is invalid (`error.details.issues`)."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
-
   /api/v1/partner/restaurants/{slug}/webhooks:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
     get:
       operationId: listRestaurantWebhooks
-      tags: [Partner]
-      summary: List the restaurant's webhooks
-      description: "**Partner key + restaurant key.** Never includes the signing secret. A restaurant has at most 10 webhooks, so `nextCursor` is always `null`."
-      responses:
-        "200":
-          description: The webhooks.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+      tags:
+        - Partner
     post:
       operationId: createRestaurantWebhook
-      tags: [Partner]
-      summary: Create a webhook
-      description: |-
-        **Partner key + restaurant key.** The URL must be a public `https://` address. The signing secret (`whsec_…`) is shown **once**, in `secret`. See [Webhooks](/webhooks) for how to verify deliveries.
-
-        Not allowed for an archived restaurant (`409 RESTAURANT_ARCHIVED`).
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
             example:
               url: https://hooks.byraet.no/lettbestilt
-              events: [ORDER_PAID, ORDER_STATUS_CHANGED]
-      responses:
-        "201":
-          description: Created. Store `secret` now; it is not shown again.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "409":
-          description: "`WEBHOOK_LIMIT`: the restaurant already has 10 webhooks. `RESTAURANT_ARCHIVED`: the restaurant is archived."
-        "422":
-          description: "`VALIDATION_FAILED`: `url` or `events` is missing, or the URL is not a public `https://` address (`error.details.issues`, with `path: \"url\"`)."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
-
+              events:
+                - ORDER_PAID
+                - ORDER_STATUS_CHANGED
   /api/v1/partner/restaurants/{slug}/webhooks/{webhookId}:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
-      - name: webhookId
-        in: path
-        description: The webhook's `id`.
     delete:
       operationId: deleteRestaurantWebhook
-      tags: [Partner]
-      summary: Delete a webhook
-      description: "**Partner key + restaurant key.** Allowed for an archived restaurant too: a receiver can always be removed."
-      responses:
-        "200":
-          description: Deleted.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `WEBHOOK_NOT_FOUND` when the webhook does not belong to the restaurant."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 key and webhook changes per minute for the partner."
-
+      tags:
+        - Partner
   /api/v1/partner/restaurants/{slug}/owner-invite:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
     post:
       operationId: inviteRestaurantOwner
-      tags: [Partner]
-      summary: Invite the restaurant's owner
-      description: |-
-        **Partner key + restaurant key.** Emails the owner an invitation. The owner creates their own login, signs the customer agreement and the data processing agreement, sets up online payment and sets the restaurant live themselves once LettBestilt has approved it (see [go-live approval](/partner-api#go-live-approval)). You cannot do those steps for the owner.
-
-        Real restaurants without an owner only, so it needs a live partner key (available once LettBestilt Partner is open). A sandbox gives `409 SANDBOX_NOT_SUPPORTED`. The invitation expires after 7 days. There is no `Idempotency-Key`: calling again is "send again" and replaces the open invitation (also to another email address) with 7 new days. If the owner already has a LettBestilt account they get a notice with a link instead of a sign-up link, and must accept the invitation themselves (`owner.status` stays `INVITED` until then); the response is the same in both cases.
-
-        Limits: 5 sent invitations per hour per restaurant and 30 per partner, plus 20 attempts per hour per restaurant and 60 per partner (rejected ones included; shared with the partner portal). A rejected email (409/422) does not count as sent.
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
             example:
               name: Kari Nordmann
               email: kari@pizzaroma.no
-      responses:
-        "201":
-          description: The invitation is sent (or, for an existing account, the notice). `inviteId` is what `DELETE` takes as `inviteId`.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "409":
-          description: "`OWNER_EXISTS`: the restaurant already has an owner. `SANDBOX_NOT_SUPPORTED`: sandboxes have no owner. `RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: changed at the same time; try again."
-        "422":
-          description: "`VALIDATION_FAILED`: `name` or `email` is missing or invalid (`error.details.issues`). `OWNER_EMAIL_NOT_ALLOWED`: the email belongs to a partner user, an open invitation to a partner team or a member of the restaurant."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or the invitation limits above."
-        "502":
-          description: "`INVITE_SEND_FAILED`: the invitation is stored and valid for 7 days, but the email did not go out. Send it again in a while (same call)."
     delete:
       operationId: revokeRestaurantOwnerInvite
-      tags: [Partner]
-      summary: Revoke the owner invitation
-      description: "**Partner key + restaurant key.** Deletes the open owner invitation (an expired one too), so it can no longer be accepted. The optional body `{ \"inviteId\" }` makes sure it is the invitation you saw. Allowed for an archived restaurant too."
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
             example:
               inviteId: inv_01j9x2
-      responses:
-        "200":
-          description: Revoked.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `OWNER_INVITE_NOT_FOUND` when there is no open owner invitation."
-        "409":
-          description: "`SANDBOX_NOT_SUPPORTED`: sandboxes have no owner. `CHANGED`: the invitation was accepted or replaced in the meantime."
-        "422":
-          description: "`VALIDATION_FAILED`: `inviteId` is not a string."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 10 revocations per hour for the restaurant."
-
   /api/v1/partner/restaurants/{slug}/go-live-review:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
     post:
       operationId: requestGoLiveReview
-      tags: [Partner]
-      summary: Ask LettBestilt for go-live approval
-      description: |-
-        **Partner key + restaurant key.** Asks LettBestilt to check a real restaurant before it goes live for the first time: menu, opening hours, payment, agreements, company details, website, domain, API key, owner and allergens. The onboarding steps must be ready (`goLive.readyToRequest` in `GET …/{slug}`), otherwise `422 GO_LIVE_NOT_READY` with `details.missing`. The checklist runs first: an error gives `422 GO_LIVE_CHECKS_FAILED` with `details.checks` and nothing is stored; warnings do not block. An approval is valid for 30 days and never sets the restaurant live: the owner does that.
-
-        Real restaurants only, so it needs a live partner key (available once LettBestilt Partner is open). A sandbox gives `409 SANDBOX_NOT_SUPPORTED`. At most 15 requests per hour per restaurant and 30 per partner (shared with the partner portal).
-      responses:
-        "201":
-          description: The request is sent to LettBestilt, with the checklist as it ran.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "409":
-          description: "`SANDBOX_NOT_SUPPORTED`, `RESTAURANT_ARCHIVED`, `GO_LIVE_NOT_REQUIRED` (already live, demo or sandbox), `GO_LIVE_ALREADY_REQUESTED` (a request is waiting) or `GO_LIVE_ALREADY_APPROVED` (an approval is still valid)."
-        "422":
-          description: "`GO_LIVE_NOT_READY`: `details.missing` lists the onboarding steps that are not done. `GO_LIVE_CHECKS_FAILED`: `details.checks` is the checklist with the failing items."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 15 requests per hour for the restaurant or 30 for the partner."
+      tags:
+        - Partner
     delete:
       operationId: withdrawGoLiveReview
-      tags: [Partner]
-      summary: Withdraw the go-live request
-      description: "**Partner key + restaurant key.** Withdraws a request that is waiting. Allowed for an archived restaurant too. At most 10 per hour per restaurant (shared with the partner portal)."
-      responses:
-        "200":
-          description: Withdrawn.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "409":
-          description: "`SANDBOX_NOT_SUPPORTED`, or `GO_LIVE_NOTHING_TO_WITHDRAW` when no request is waiting."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 10 withdrawals per hour for the restaurant."
-
+      tags:
+        - Partner
   /api/v1/partner/restaurants/{slug}/domains:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
     get:
       operationId: listRestaurantDomains
-      tags: [Partner]
-      summary: List the restaurant's domains
-      description: "**Partner key + restaurant key.** All domains, including those waiting for verification (with the TXT record in `verification`). A restaurant has at most 10 domains, so `nextCursor` is always `null`."
-      responses:
-        "200":
-          description: The domains.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
+      tags:
+        - Partner
     post:
       operationId: addRestaurantDomain
-      tags: [Partner]
-      summary: Add a domain
-      description: |-
-        **Partner key + restaurant key.** The domain is normalised (lower case, without `https://` and trailing slash). Add the TXT record from `verification` at the DNS provider, then verify with `POST …/domains/{domainId}/verify`. A verified domain lets the restaurant's site call `/api/v1` from the browser and use the domain in `successUrl` and `cancelUrl`.
-
-        `201` for a new domain. `200` when you take over a domain that is unverified at another restaurant (new TXT value): after 72 hours, or right away when it is unverified at a sandbox and you add it to a real restaurant. At most 10 domains per restaurant. Not allowed for an archived restaurant. Domains work for sandboxes too.
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
             example:
               domain: www.pizzaroma.no
-      responses:
-        "200":
-          description: Taken over from another restaurant, with a new TXT value to add.
-        "201":
-          description: Added. Verify it with the TXT record in `verification`.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "409":
-          description: "`DOMAIN_TAKEN`: registered for this or another restaurant. `DOMAIN_LIMIT`: the restaurant already has 10 domains. `RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: changed at the same time; try again."
-        "422":
-          description: "`VALIDATION_FAILED`: `domain` is missing, invalid or reserved, such as `lettbestilt.no` (`error.details.issues`, with `path: \"domain\"`)."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 changes per minute for the partner."
-
   /api/v1/partner/restaurants/{slug}/domains/{domainId}:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
-      - name: domainId
-        in: path
-        description: The domain's `id`.
     delete:
       operationId: deleteRestaurantDomain
-      tags: [Partner]
-      summary: Remove a domain
-      description: "**Partner key + restaurant key.** The restaurant's site is no longer accepted from the domain. Allowed for an archived restaurant too."
-      responses:
-        "200":
-          description: Removed.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `DOMAIN_NOT_FOUND` when the domain does not belong to the restaurant."
-        "409":
-          description: "`DOMAIN_MANAGED`: the domain is managed by LettBestilt. `CHANGED`: changed at the same time; try again."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 changes per minute for the partner."
+      tags:
+        - Partner
     patch:
       operationId: setRestaurantPrimaryDomain
-      tags: [Partner]
-      summary: Use the domain in tracking links
-      description: "**Partner key + restaurant key.** With `{ \"primary\": true }` the domain becomes the one LettBestilt's tracking links in emails and on receipts go to (the same as \"Use in tracking links\" in the partner portal). Verified domains only. The previous primary domain loses the mark in the same operation. If nothing changes you get `200` without a change. Not allowed for an archived restaurant."
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
             example:
               primary: true
-      responses:
-        "200":
-          description: The domain as it is now.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `DOMAIN_NOT_FOUND` when the domain does not belong to the restaurant."
-        "409":
-          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: changed at the same time; try again."
-        "422":
-          description: "`VALIDATION_FAILED`: the body must be exactly `{ \"primary\": true }`. `DOMAIN_NOT_VERIFIED`: the domain is not verified yet."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 changes per minute for the partner."
-
   /api/v1/partner/restaurants/{slug}/domains/{domainId}/verify:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
-      - name: domainId
-        in: path
-        description: The domain's `id`.
     post:
       operationId: verifyRestaurantDomain
-      tags: [Partner]
-      summary: Verify a domain
-      description: "**Partner key + restaurant key.** Looks up the TXT record and verifies the domain. Safe to repeat: an already verified domain gives `200`. At most 30 attempts per 10 minutes per restaurant (shared with the partner portal). DNS changes can take a while to show up. Not allowed for an archived restaurant."
-      responses:
-        "200":
-          description: Verified.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `DOMAIN_NOT_FOUND` when the domain does not belong to the restaurant."
-        "409":
-          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived. `CHANGED`: the domain was changed or taken over in the meantime."
-        "422":
-          description: "`DOMAIN_NOT_VERIFIED`: the TXT record was not found. The message says the name and value the record must have."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, or more than 30 verification attempts per 10 minutes for the restaurant."
-
+      tags:
+        - Partner
   /api/v1/partner/restaurants/{slug}/menu-imports:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
     post:
       operationId: createMenuImport
-      tags: [Partner]
-      summary: Upload a menu (PDF or image) and get a proposal
-      description: |-
-        **Partner key + restaurant key.** `multipart/form-data` with the menu in the field `file`: a PDF (up to 4 MB and 20 pages) or a JPEG, PNG or WebP image (up to 4 MB, 200 to 8000 pixels per side; HEIC is not supported). The type is read from the file's content, not from `Content-Type` or the file name. The file is interpreted during the request and never stored; only the proposal is stored, as a draft that is deleted after 7 days. Sending the same file as an open draft returns that draft (`200`) without a new interpretation.
-
-        A language model reads the menu. For a PDF with a text layer every price and name is checked against the text, and if the model is unavailable the deterministic parser is used (`proposal.source`). An image or a scanned PDF cannot be checked against text and gets the warning `CHECK_AGAINST_MENU`. The call can take a couple of minutes. Committing always creates a new menu that is turned off, so nothing is overwritten. Works for sandboxes and real restaurants. Not allowed for an archived restaurant.
-
-        Limits: 10 interpretations per hour per restaurant (shared with the restaurant dashboard), 60 per hour per partner, and 20 model interpretations per day per restaurant.
-      responses:
-        "200":
-          description: The same file as an open draft. That draft, without a new interpretation.
-        "201":
-          description: The draft with the proposal.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`: the same response whether the slug does not exist, belongs to another partner or does not match the restaurant key."
-        "409":
-          description: "`RESTAURANT_ARCHIVED`: the restaurant is archived."
-        "413":
-          description: "`PDF_TOO_LARGE`: the file (PDF or image) is larger than 4 MB."
-        "422":
-          description: "`VALIDATION_FAILED`: the field `file` is missing. `FILE_UNSUPPORTED`: not a PDF, JPEG, PNG or WebP. `IMAGE_HEIC`: HEIC/HEIF is not supported; send a JPEG. `IMAGE_INVALID`: the image cannot be read. `IMAGE_DIMENSIONS`: a side is under 200 or over 8000 pixels. `PDF_INVALID`, `PDF_PASSWORD`, `PDF_TOO_MANY_PAGES` (over 20 pages), `PDF_NO_TEXT` (scanned PDF while image interpretation is unavailable), `PDF_PARSE_TIMEOUT`, `MENU_IMPORT_TOO_BIG` (too much to read at once) or `MENU_IMPORT_EMPTY` (no dishes with a price)."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, 10 interpretations per hour for the restaurant or 60 for the partner. `MENU_IMPORT_AI_LIMIT`: more than 20 model interpretations per day for the restaurant; a PDF with text then uses the deterministic parser instead."
-        "503":
-          description: "`MENU_IMPORT_UNAVAILABLE`: the language model did not answer, and an image or a scanned PDF has no fallback. Try again in a while."
-
+      tags:
+        - Partner
   /api/v1/partner/restaurants/{slug}/menu-imports/{importId}:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
-      - name: importId
-        in: path
-        description: The import's `id`.
     get:
       operationId: getMenuImport
-      tags: [Partner]
-      summary: Get a menu import
-      description: "**Partner key + restaurant key.** The draft with the proposal and status, including changes saved from the preview in the restaurant dashboard. A draft past `expiresAt` has status `EXPIRED`. Imports from before the restaurant came to the partner give `404`."
-      responses:
-        "200":
-          description: The menu import.
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `MENU_IMPORT_NOT_FOUND` when the import does not exist or belongs to another restaurant."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key."
-
+      tags:
+        - Partner
   /api/v1/partner/restaurants/{slug}/menu-imports/{importId}/commit:
-    parameters:
-      - name: slug
-        in: path
-        description: The restaurant's slug.
-      - name: importId
-        in: path
-        description: The import's `id`.
     post:
       operationId: commitMenuImport
-      tags: [Partner]
-      summary: Import the proposal as a new menu
-      description: |-
-        **Partner key + restaurant key.** Creates a **new** menu that is turned off (`isActive: false`) and is not the default menu, with categories, products, sizes and allergens in one transaction. No existing menu is overwritten or changed. Customers do not see it until the restaurant turns it on and makes it the default menu (or gives it a schedule); turning it on is not enough while another menu is the default.
-
-        Without `proposal` the stored proposal is used (with changes made in the dashboard). The name is "Importert DD.MM.YYYY" (Oslo) when `menuName` is left out. A second commit, also after a lost response, gives `409 MENU_IMPORT_CLOSED` with `details.menuId`, so a retry finds the menu. Imports from before the restaurant came to the partner give `404`. At most 10 per hour per restaurant and 30 changes per minute per partner.
+      tags:
+        - Partner
       requestBody:
         content:
           application/json:
             example:
               menuName: Hovedmeny
-      responses:
-        "201":
-          description: The menu is created and turned off.
-        "400":
-          description: "`INVALID_JSON`: the body is not valid JSON."
-        "401":
-          description: "`UNAUTHORIZED`: a key is missing, invalid or revoked, the two keys are in different environments, or the partner is suspended or archived. `KEY_EXPIRED`: one of the keys is past its expiry date."
-        "403":
-          description: "`FORBIDDEN`: the request has an `Origin` header. `PARTNER_AGREEMENT_REQUIRED`: live key, but the partner agreements are not signed. `PARTNER_NOT_APPROVED`: LettBestilt has not approved the partner yet. `INSUFFICIENT_SCOPE`: the restaurant key does not have full access."
-        "404":
-          description: "`RESTAURANT_NOT_FOUND`, or `MENU_IMPORT_NOT_FOUND` when the import does not exist or belongs to another restaurant."
-        "409":
-          description: "`MENU_IMPORT_CLOSED`: already imported, discarded or expired (`details: { status, menuId }`). `CHANGED`: without `proposal`, the proposal was changed in the dashboard between reading and importing; nothing is imported, try again. `RESTAURANT_ARCHIVED`: the restaurant is archived."
-        "422":
-          description: "`VALIDATION_FAILED` with `error.details.issues`: a missing name or price, fields that are too long, unknown allergen codes or too many products."
-        "429":
-          description: "`RATE_LIMITED`: more than 120 calls per minute for this partner key, 10 commits per hour for the restaurant or 30 changes per minute for the partner."
-
-# -----------------------------------------------------------------------------
-# Webhooks (OpenAPI 3.1). Payloads verified against the platform's
-# dispatchWebhook() call sites.
-# -----------------------------------------------------------------------------
+  /api/v1/partner/restaurants/{slug}/settings:
+    get:
+      operationId: getPartnerRestaurantSettings
+      tags:
+        - Partner
+    patch:
+      operationId: updatePartnerRestaurantSettings
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              expectedVersion: 3f9a1c0d7be24e51
+              name: Pizza Roma
+              primaryColor: "#B3261E"
+              pickupEnabled: true
+              deliveryEnabled: true
+  /api/v1/partner/restaurants/{slug}/hours:
+    get:
+      operationId: getPartnerRestaurantHours
+      tags:
+        - Partner
+    put:
+      operationId: setPartnerRestaurantHours
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              days:
+                - dayOfWeek: MONDAY
+                  opensAt: "15:00"
+                  closesAt: "22:00"
+                  isClosed: false
+                - dayOfWeek: SATURDAY
+                  opensAt: "13:00"
+                  closesAt: "23:00"
+                  isClosed: false
+  /api/v1/partner/restaurants/{slug}/hours/overrides:
+    post:
+      operationId: createPartnerHoursOverride
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              label: Julaften
+              startDate: "2026-12-24"
+              endDate: "2026-12-24"
+              isClosed: true
+  /api/v1/partner/restaurants/{slug}/hours/overrides/{overrideId}:
+    patch:
+      operationId: updatePartnerHoursOverride
+      tags:
+        - Partner
+    delete:
+      operationId: deletePartnerHoursOverride
+      tags:
+        - Partner
+  /api/v1/partner/restaurants/{slug}/delivery-zones:
+    get:
+      operationId: listPartnerDeliveryZones
+      tags:
+        - Partner
+    post:
+      operationId: createPartnerDeliveryZone
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Sentrum
+              type: POSTAL_CODES
+              postalCodes:
+                - "3110"
+                - "3111"
+              deliveryFee: 4900
+              minimumOrder: 20000
+              estimatedMinutes: 40
+  /api/v1/partner/restaurants/{slug}/delivery-zones/{zoneId}:
+    patch:
+      operationId: updatePartnerDeliveryZone
+      tags:
+        - Partner
+    delete:
+      operationId: deletePartnerDeliveryZone
+      tags:
+        - Partner
+  /api/v1/partner/restaurants/{slug}/menus:
+    get:
+      operationId: listPartnerMenus
+      tags:
+        - Partner
+    post:
+      operationId: createPartnerMenu
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Hovedmeny
+              proposal:
+                version: 1
+                categories:
+                  - name: Pizza
+                    products:
+                      - name: Margherita
+                        price: 16900
+                        allergens:
+                          - WHEAT
+                          - MILK
+  /api/v1/partner/restaurants/{slug}/menus/{menuId}:
+    get:
+      operationId: getPartnerMenu
+      tags:
+        - Partner
+    patch:
+      operationId: updatePartnerMenu
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              isActive: true
+              isDefault: true
+    delete:
+      operationId: deletePartnerMenu
+      tags:
+        - Partner
+  /api/v1/partner/restaurants/{slug}/menus/{menuId}/schedules:
+    put:
+      operationId: setPartnerMenuSchedules
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              schedules:
+                - dayOfWeek: MONDAY
+                  startsAt: "11:00"
+                  endsAt: "14:00"
+  /api/v1/partner/restaurants/{slug}/menus/{menuId}/categories:
+    post:
+      operationId: createPartnerCategory
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Pizza
+              description: Steinovnsbakt
+  /api/v1/partner/restaurants/{slug}/categories/{categoryId}:
+    patch:
+      operationId: updatePartnerCategory
+      tags:
+        - Partner
+    delete:
+      operationId: deletePartnerCategory
+      tags:
+        - Partner
+  /api/v1/partner/restaurants/{slug}/categories/{categoryId}/products:
+    post:
+      operationId: createPartnerProduct
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Pepperoni
+              variants:
+                - name: Liten
+                  price: 15900
+                  isDefault: true
+                - name: Stor
+                  price: 21900
+              allergens:
+                - WHEAT
+                - MILK
+  /api/v1/partner/restaurants/{slug}/products/batch:
+    post:
+      operationId: createPartnerProductsBatch
+      tags:
+        - Partner
+  /api/v1/partner/restaurants/{slug}/products/{productId}:
+    patch:
+      operationId: updatePartnerProduct
+      tags:
+        - Partner
+    delete:
+      operationId: deletePartnerProduct
+      tags:
+        - Partner
+  /api/v1/partner/restaurants/{slug}/addon-groups:
+    get:
+      operationId: listPartnerAddonGroups
+      tags:
+        - Partner
+    post:
+      operationId: createPartnerAddonGroup
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Ekstra
+              scope: PRODUCT
+              productIds:
+                - prod_123
+              maxSelect: 3
+              addons:
+                - name: Ost
+                  price: 1500
+  /api/v1/partner/restaurants/{slug}/addon-groups/{groupId}:
+    patch:
+      operationId: updatePartnerAddonGroup
+      tags:
+        - Partner
+    delete:
+      operationId: deletePartnerAddonGroup
+      tags:
+        - Partner
+  /api/v1/partner/me:
+    get:
+      operationId: getPartnerAccount
+      tags:
+        - Partner
+  /api/v1/partner/brand:
+    get:
+      operationId: getPartnerBrand
+      tags:
+        - Partner
+    patch:
+      operationId: updatePartnerBrand
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              expectedUpdatedAt: "2026-10-20T10:00:00.000Z"
+              supportEmail: support@yourcompany.no
+              themeSidebarColor: "#1f2a44"
+              themeFont: figtree
+  /api/v1/partner/brand/logo:
+    post:
+      operationId: uploadPartnerLogo
+      tags:
+        - Partner
+  /api/v1/partner/brand/logo-light:
+    post:
+      operationId: uploadPartnerLightLogo
+      tags:
+        - Partner
+  /api/v1/partner/brand/sender-domain:
+    get:
+      operationId: getPartnerSenderDomain
+      tags:
+        - Partner
+    post:
+      operationId: setPartnerSenderDomain
+      tags:
+        - Partner
+    delete:
+      operationId: deletePartnerSenderDomain
+      tags:
+        - Partner
+  /api/v1/partner/brand/sender-domain/verify:
+    post:
+      operationId: verifyPartnerSenderDomain
+      tags:
+        - Partner
+  /api/v1/partner/profile:
+    get:
+      operationId: getPartnerProfile
+      tags:
+        - Partner
+    patch:
+      operationId: updatePartnerProfile
+      tags:
+        - Partner
+  /api/v1/partner/news:
+    get:
+      operationId: listPartnerNews
+      tags:
+        - Partner
+    post:
+      operationId: createPartnerNews
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              title: New opening hours in the dashboard
+              body: You can now set holiday hours under **Åpningstider**.
+              level: UPDATE
+              audienceAll: false
+              restaurantSlugs:
+                - pizza-roma
+  /api/v1/partner/news/{newsId}:
+    get:
+      operationId: getPartnerNews
+      tags:
+        - Partner
+    patch:
+      operationId: updatePartnerNews
+      tags:
+        - Partner
+    delete:
+      operationId: deletePartnerNews
+      tags:
+        - Partner
+  /api/v1/partner/news/{newsId}/publish:
+    post:
+      operationId: publishPartnerNews
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              action: schedule
+              scheduledAt: "2026-11-01T09:00:00+01:00"
 webhooks:
   orderCreated:
     post:
       operationId: orderCreated
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Order created
-      description: |-
-        Sent when a new takeaway order is created. Online orders are sent while they still wait for payment (`status: "AWAITING_PAYMENT"`); `ORDER_PAID` follows when the payment is confirmed. If the customer never pays, no further event is sent. Cash orders arrive as `CONFIRMED`.
+      description: >-
+        Sent when a new takeaway order is created. Online orders are sent while they still wait for payment
+        (`status: "AWAITING_PAYMENT"`); `ORDER_PAID` follows when the payment is confirmed. If the customer
+        never pays, no further event is sent. Cash orders arrive as `CONFIRMED`.
 
-        `estimatedReadyAt` is the kitchen's estimate including rush, and `requestedPickupAt` is the agreed time for a pre-order. They are the same times the tracking page shows.
+
+        `estimatedReadyAt` is the kitchen's estimate including rush, and `requestedPickupAt` is the agreed
+        time for a pre-order. They are the same times the tracking page shows.
       parameters:
         - $ref: "#/components/parameters/WebhookIdHeader"
         - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
@@ -1781,11 +995,15 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [ORDER_CREATED]
+                  enum:
+                    - ORDER_CREATED
                 createdAt:
                   type: string
                   format: date-time
@@ -1809,15 +1027,15 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
-
   orderPaid:
     post:
       operationId: orderPaid
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Order paid
       description: >-
-        Sent once when the online payment for an order is confirmed. This is
-        when an online order reaches the kitchen.
+        Sent once when the online payment for an order is confirmed. This is when an online order reaches the
+        kitchen.
       parameters:
         - $ref: "#/components/parameters/WebhookIdHeader"
         - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
@@ -1829,11 +1047,15 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [ORDER_PAID]
+                  enum:
+                    - ORDER_PAID
                 createdAt:
                   type: string
                   format: date-time
@@ -1853,16 +1075,15 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
-
   orderStatusChanged:
     post:
       operationId: orderStatusChanged
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Order status changed
       description: >-
-        Sent when the restaurant moves an order to a new status, for example to
-        `PREPARING` or `READY_FOR_PICKUP`. Cancellations are sent as
-        `ORDER_CANCELLED` instead, and payment as `ORDER_PAID`.
+        Sent when the restaurant moves an order to a new status, for example to `PREPARING` or
+        `READY_FOR_PICKUP`. Cancellations are sent as `ORDER_CANCELLED` instead, and payment as `ORDER_PAID`.
       parameters:
         - $ref: "#/components/parameters/WebhookIdHeader"
         - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
@@ -1874,11 +1095,15 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [ORDER_STATUS_CHANGED]
+                  enum:
+                    - ORDER_STATUS_CHANGED
                 createdAt:
                   type: string
                   format: date-time
@@ -1897,15 +1122,15 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
-
   orderCancelled:
     post:
       operationId: orderCancelled
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Order cancelled
       description: >-
-        Sent when the restaurant cancels an order. `status` is always
-        `CANCELLED`; `previousStatus` is the status before.
+        Sent when the restaurant cancels an order. `status` is always `CANCELLED`; `previousStatus` is the
+        status before.
       parameters:
         - $ref: "#/components/parameters/WebhookIdHeader"
         - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
@@ -1917,11 +1142,15 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [ORDER_CANCELLED]
+                  enum:
+                    - ORDER_CANCELLED
                 createdAt:
                   type: string
                   format: date-time
@@ -1940,11 +1169,11 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
-
   reservationRequested:
     post:
       operationId: reservationRequested
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Reservation requested
       description: Sent when a guest requests a table through `POST /reservations`.
       parameters:
@@ -1958,11 +1187,15 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [RESERVATION_REQUESTED]
+                  enum:
+                    - RESERVATION_REQUESTED
                 createdAt:
                   type: string
                   format: date-time
@@ -1981,15 +1214,15 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
-
   reservationApproved:
     post:
       operationId: reservationApproved
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Reservation approved
       description: >-
-        Sent when the restaurant approves a reservation request and assigns a
-        table. The reservation's status becomes `CONFIRMED`.
+        Sent when the restaurant approves a reservation request and assigns a table. The reservation's status
+        becomes `CONFIRMED`.
       parameters:
         - $ref: "#/components/parameters/WebhookIdHeader"
         - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
@@ -2001,11 +1234,15 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [RESERVATION_APPROVED]
+                  enum:
+                    - RESERVATION_APPROVED
                 createdAt:
                   type: string
                   format: date-time
@@ -2025,15 +1262,13 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
-
   reservationRejected:
     post:
       operationId: reservationRejected
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Reservation rejected
-      description: >-
-        Sent when the restaurant rejects a reservation request. The
-        reservation's status becomes `CANCELLED`.
+      description: Sent when the restaurant rejects a reservation request. The reservation's status becomes `CANCELLED`.
       parameters:
         - $ref: "#/components/parameters/WebhookIdHeader"
         - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
@@ -2045,11 +1280,15 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [RESERVATION_REJECTED]
+                  enum:
+                    - RESERVATION_REJECTED
                 createdAt:
                   type: string
                   format: date-time
@@ -2067,18 +1306,17 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds to acknowledge the event.
-
   ping:
     post:
       operationId: ping
-      tags: [Webhooks]
+      tags:
+        - Webhooks
       summary: Test event (PING)
       description: >-
-        Sent only when someone chooses **Send test event** for the webhook in
-        LettBestilt Partner, to check that your endpoint receives and verifies
-        deliveries. It is signed like every other event, is sent even when the
-        webhook is paused, and is never retried. You cannot subscribe to it.
-        Answer `2xx` and ignore it, or log it.
+        Sent only when someone chooses **Send test event** for the webhook in LettBestilt Partner, to check
+        that your endpoint receives and verifies deliveries. It is signed like every other event, is sent even
+        when the webhook is paused, and is never retried. You cannot subscribe to it. Answer `2xx` and ignore
+        it, or log it.
       parameters:
         - $ref: "#/components/parameters/WebhookIdHeader"
         - $ref: "#/components/parameters/WebhookDeliveryIdHeader"
@@ -2090,18 +1328,26 @@ webhooks:
           application/json:
             schema:
               type: object
-              required: [event, createdAt, data]
+              required:
+                - event
+                - createdAt
+                - data
               properties:
                 event:
                   type: string
-                  enum: [PING]
+                  enum:
+                    - PING
                 createdAt:
                   type: string
                   format: date-time
                   description: When the test event was sent (ISO 8601, UTC).
                 data:
                   type: object
-                  required: [webhookId, restaurantSlug, test, message]
+                  required:
+                    - webhookId
+                    - restaurantSlug
+                    - test
+                    - message
                   properties:
                     webhookId:
                       type: string
@@ -2110,7 +1356,8 @@ webhooks:
                       type: string
                     test:
                       type: boolean
-                      enum: [true]
+                      enum:
+                        - true
                     message:
                       type: string
                       description: A fixed Norwegian text.
@@ -2125,65 +1372,7 @@ webhooks:
       responses:
         "200":
           description: Respond with any `2xx` status within 5 seconds.
-
 components:
-  securitySchemes:
-    BearerApiKey:
-      description: >-
-        Either this or a trusted browser origin. The restaurant's API key, sent
-        as `Authorization: Bearer lbs_…`. Use it from your server only, never
-        in browser code. Keys are created per restaurant in LettBestilt
-        Partner: `lbs_test_…` for sandboxes, `lbs_live_…` for live
-        restaurants. A key can be limited to some scopes; an endpoint outside
-        them returns `403 INSUFFICIENT_SCOPE` with the required scope in
-        `error.details.requiredScope`. A key can have an expiry date; an expired
-        key returns `401 KEY_EXPIRED`. A partner key (`lbp_…`) only works
-        against `/api/v1/partner` and is rejected here with `401 UNAUTHORIZED`.
-    PartnerApiKey:
-      description: >-
-        The partner key, sent as `Authorization: Bearer lbp_test_…`. Created in
-        LettBestilt Partner under **Partner key**. It belongs to the partner, not
-        to a restaurant, and only works against `/api/v1/partner`. Server to
-        server only: a request with an `Origin` header is rejected with `403
-        FORBIDDEN`. A test key sees and creates only sandboxes; live partner
-        keys are not available yet. A revoked key, a restaurant key (`lbs_…`)
-        here, or a suspended or archived partner returns `401 UNAUTHORIZED`;
-        an expired key returns `401 KEY_EXPIRED`.
-    RestaurantKeyHeader:
-      description: >-
-        The restaurant's own key (`lbs_test_…` or `lbs_live_…`), sent in
-        `X-LettBestilt-Restaurant-Key` together with the partner key for calls
-        about one restaurant. The key must have full access (scope `*`,
-        otherwise `403 INSUFFICIENT_SCOPE`), belong to a restaurant the partner
-        owns, and be in the same environment as the partner key (otherwise `401
-        UNAUTHORIZED`). A slug that does not exist, belongs to another partner
-        or does not match the key always gives the same `404
-        RESTAURANT_NOT_FOUND`. Older keys without an environment in the prefix
-        (`lbs_<random>`) are not accepted here; rotate them in LettBestilt
-        Partner.
-    BrowserOrigin:
-      description: >-
-        Either this or an API key. No key is needed when the request's `Origin`
-        header is trusted for this restaurant: `https://{slug}.lettbestilt.no`, a verified domain of
-        the restaurant, or a partner origin LettBestilt has bound to the
-        restaurant. Browsers set `Origin` themselves; it is not something you
-        configure. Not accepted by `GET /site-gate`, which requires an API
-        key.
-
-  responses:
-    Unauthorized:
-      description: >-
-        Missing, invalid, revoked or expired API key, and the request does not
-        come from a trusted browser origin. `error.code` is `UNAUTHORIZED`, or
-        `KEY_EXPIRED` when the key is valid but past its expiry date. A partner
-        key (`lbp_…`) always gives `UNAUTHORIZED` here.
-    InsufficientScope:
-      description: >-
-        `INSUFFICIENT_SCOPE`: the API key does not have the scope this endpoint
-        needs. `error.details.requiredScope` names it, for example
-        `orders.create`. Create a key with that access in LettBestilt Partner,
-        or use a key with full access.
-
   parameters:
     WebhookIdHeader:
       name: X-LettBestilt-Webhook-Id
@@ -2197,9 +1386,9 @@ components:
       in: header
       required: true
       description: >-
-        Stable per event and subscription. Retries of the same event, and
-        deliveries sent again with **Resend** in LettBestilt Partner, carry the
-        same ID, so use it to skip events you have already handled.
+        Stable per event and subscription. Retries of the same event, and deliveries sent again with
+        **Resend** in LettBestilt Partner, carry the same ID, so use it to skip events you have already
+        handled.
       schema:
         type: string
     WebhookTimestampHeader:
@@ -2214,11 +1403,10 @@ components:
       in: header
       required: true
       description: >-
-        `sha256=` followed by the hex HMAC-SHA256 of `{timestamp}.{raw body}`,
-        keyed with the webhook's signing secret (`whsec_…`).
+        `sha256=` followed by the hex HMAC-SHA256 of `{timestamp}.{raw body}`, keyed with the webhook's
+        signing secret (`whsec_…`).
       schema:
         type: string
-
   schemas:
     OrderStatus:
       type: string
@@ -2258,11 +1446,19 @@ components:
           description: Cancelled by the restaurant, or a rejected reservation request.
         FAILED:
           description: The online payment failed.
-
     OrderCreatedData:
       type: object
       description: The `data` of an `ORDER_CREATED` event.
-      required: [orderId, orderNumber, publicToken, status, total, fulfillment, paymentMethod, estimatedReadyAt, requestedPickupAt]
+      required:
+        - orderId
+        - orderNumber
+        - publicToken
+        - status
+        - total
+        - fulfillment
+        - paymentMethod
+        - estimatedReadyAt
+        - requestedPickupAt
       properties:
         orderId:
           type: string
@@ -2280,26 +1476,44 @@ components:
           description: The total in øre.
         fulfillment:
           type: string
-          enum: [PICKUP, DELIVERY]
+          enum:
+            - PICKUP
+            - DELIVERY
         paymentMethod:
           type: string
-          enum: [STRIPE, CASH, VIPPS]
+          enum:
+            - STRIPE
+            - CASH
+            - VIPPS
           description: The `paymentMethod` the order was created with. `STRIPE` means online payment through SagaPay.
         estimatedReadyAt:
-          type: [string, "null"]
+          type:
+            - string
+            - "null"
           format: date-time
           description: The kitchen's estimate including rush (ISO 8601, UTC).
         requestedPickupAt:
-          type: [string, "null"]
+          type:
+            - string
+            - "null"
           format: date-time
           description: The agreed time for a pre-order, otherwise `null`.
         attributedCampaignId:
-          type: [string, "null"]
-          description: The newsletter campaign the order was credited to, or `null`. See [Campaign tracking](/campaign-tracking).
+          type:
+            - string
+            - "null"
+          description: >-
+            The newsletter campaign the order was credited to, or `null`. See [Campaign
+            tracking](/campaign-tracking).
     OrderPaidData:
       type: object
       description: The `data` of an `ORDER_PAID` event.
-      required: [orderId, orderNumber, publicToken, status, total]
+      required:
+        - orderId
+        - orderNumber
+        - publicToken
+        - status
+        - total
       properties:
         orderId:
           type: string
@@ -2309,17 +1523,27 @@ components:
           type: string
         status:
           type: string
-          enum: [PAID]
+          enum:
+            - PAID
         total:
           type: integer
           description: The amount paid, in øre.
         attributedCampaignId:
-          type: [string, "null"]
-          description: The newsletter campaign the order was credited to, or `null`. See [Campaign tracking](/campaign-tracking).
+          type:
+            - string
+            - "null"
+          description: >-
+            The newsletter campaign the order was credited to, or `null`. See [Campaign
+            tracking](/campaign-tracking).
     ReservationRequestedData:
       type: object
       description: The `data` of a `RESERVATION_REQUESTED` event.
-      required: [orderId, orderNumber, publicToken, dineInAt, partySize]
+      required:
+        - orderId
+        - orderNumber
+        - publicToken
+        - dineInAt
+        - partySize
       properties:
         orderId:
           type: string
@@ -2337,7 +1561,13 @@ components:
     ReservationApprovedData:
       type: object
       description: The `data` of a `RESERVATION_APPROVED` event.
-      required: [orderId, orderNumber, publicToken, dineInAt, partySize, tableId]
+      required:
+        - orderId
+        - orderNumber
+        - publicToken
+        - dineInAt
+        - partySize
+        - tableId
       properties:
         orderId:
           type: string
@@ -2357,7 +1587,11 @@ components:
     ReservationRejectedData:
       type: object
       description: The `data` of a `RESERVATION_REJECTED` event.
-      required: [orderId, orderNumber, publicToken, reason]
+      required:
+        - orderId
+        - orderNumber
+        - publicToken
+        - reason
       properties:
         orderId:
           type: string
@@ -2366,12 +1600,19 @@ components:
         publicToken:
           type: string
         reason:
-          type: [string, "null"]
+          type:
+            - string
+            - "null"
           description: The reason the restaurant gave, or `null`.
     OrderStatusChangeData:
       type: object
       description: The `data` of an `ORDER_STATUS_CHANGED` or `ORDER_CANCELLED` event.
-      required: [orderId, orderNumber, publicToken, previousStatus, status]
+      required:
+        - orderId
+        - orderNumber
+        - publicToken
+        - previousStatus
+        - status
       properties:
         orderId:
           type: string
@@ -2383,467 +1624,11 @@ components:
           $ref: "#/components/schemas/OrderStatus"
         status:
           $ref: "#/components/schemas/OrderStatus"
-
-    Address:
-      description: >-
-        The restaurant's public visiting address. Safe to publish: on the contact
-        page, as `address` and `geo` in Restaurant JSON-LD, and as the map point
-        for pickup. The field is `null` when the restaurant has no street
-        address. It is never an empty shell, so `address === null` means "no
-        address to show", not "an address with empty fields". `latitude` and
-        `longitude` are both set or both `null`; check one of them before you
-        render a map.
-      properties:
-        line1:
-          description: Street address, for example "Heggeliveien 5". Never empty.
-        postalCode:
-          description: Four digits, for example "9325".
-        city:
-          description: Postal town, for example "Bardufoss".
-        country:
-          description: ISO 3166-1 alpha-2. Always "NO".
-        latitude:
-          description: WGS84. Set when the owner picked the address from the address lookup in the dashboard.
-        longitude:
-          description: WGS84. Always set together with `latitude`.
-
-    AddressHit:
-      description: An address from Kartverket, with WGS84 coordinates for delivery-zone matching.
-      properties:
-        label:
-          description: The full address, for display.
-        street:
-          description: Street name and number.
-        postalCode:
-          description: Four-digit postal code. Send it as `deliveryPostalCode`.
-        city:
-          description: Postal town.
-        lat:
-          description: Latitude. Send it as `deliveryLat`.
-        lng:
-          description: Longitude. Send it as `deliveryLng`.
-
-    DayHours:
-      description: >-
-        One weekday in a set of opening hours. `dayOfWeek` is 0 = Sunday … 6 =
-        Saturday. Times are local wall-clock time in Europe/Oslo, not UTC. When
-        `isClosed` is `true`, ignore `opensAt` and `closesAt`.
-      properties:
-        dayOfWeek:
-          description: 0 = Sunday, 6 = Saturday.
-        opensAt:
-          description: HH:MM, Europe/Oslo.
-        closesAt:
-          description: HH:MM, Europe/Oslo.
-
-    PrepTime:
-      description: >-
-        The current preparation time, already added up: base time plus rush.
-        Show `pickupMinutes` or `deliveryMinutes` as "about X min". They are
-        exactly what `POST /orders` uses to set `estimatedReadyAt` (now plus the
-        minutes) on an as-soon-as-possible order. `rushDelayMinutes` above 0
-        means the kitchen has turned on rush, which turns itself off at the next
-        midnight (Oslo time). Do not calculate anything yourself; show the
-        numbers as they are.
-      properties:
-        pickupMinutes:
-          description: Base pickup time plus rush.
-        deliveryMinutes:
-          description: Base delivery time plus rush.
-        rushDelayMinutes:
-          description: Extra minutes from rush right now (0 = no rush).
-        basePickupMinutes:
-          description: The restaurant's normal pickup time (same as `defaultPrepMinutes`).
-        baseDeliveryMinutes:
-          description: The restaurant's normal delivery time (same as `defaultDeliveryMinutes`).
-
-    Menu:
-      description: >-
-        A menu, such as the main menu or a lunch menu. Only menus that are
-        active right now are returned.
-      properties:
-        isDefault:
-          description: The fallback menu, used when no other menu is active.
-        priority:
-          description: Decides which menu wins when several are active at the same time.
-        schedules:
-          description: When the menu is active. Empty means it is not limited by time of day.
-        startsOn:
-          description: First valid day (Europe/Oslo), inclusive. `null` means no lower limit.
-        endsOn:
-          description: Last valid day (Europe/Oslo), inclusive. `null` means no upper limit.
-
-    MenuSchedule:
-      description: >-
-        A time window that makes a menu active. `startsAt` and `endsAt` are local
-        wall-clock time in Europe/Oslo.
-      properties:
-        startsAt:
-          description: HH:MM, Europe/Oslo. Inclusive.
-        endsAt:
-          description: HH:MM, Europe/Oslo. Exclusive.
-
-    Product:
-      description: A product on the menu. Hidden and unavailable products are not included.
-      properties:
-        nameEn:
-          description: English name, if the restaurant has entered one.
-        descriptionEn:
-          description: English description, if the restaurant has entered one.
-        imageIsStock:
-          description: >-
-            `true` means the image is a generic illustration from LettBestilt's
-            image library, not a photo of the restaurant's own dish. Show
-            "Illustrasjonsfoto" (illustration photo) next to the image when this
-            is `true`.
-        basePrice:
-          description: The price in øre. A chosen variant's `price` replaces it.
-        isPopular:
-          description: Marked as popular by the restaurant.
-        isRecommended:
-          description: Marked as recommended by the restaurant.
-        allowedFulfillment:
-          description: >-
-            `PICKUP` = pickup only, `DELIVERY` = delivery only, `null` = both.
-            The field can be missing in older or cached responses; treat that as
-            `null`. For combo products, the products the customer picks in the
-            slots count too (look them up via `comboSlots`). `POST /orders`
-            rejects violations with `422 FULFILLMENT_NOT_ALLOWED`.
-        allergens:
-          description: Allergen codes. Look them up in the top-level `allergens` list in `GET /menu`.
-
-    AddonGroup:
-      description: >-
-        A group of add-ons, such as extra toppings. The customer picks between
-        `minSelect` and `maxSelect` of `addons`.
-
-    OrderItem:
-      properties:
-        productId:
-          description: A product ID from the menu.
-        variantId:
-          description: The chosen variant, if the product has variants.
-        addonIds:
-          description: The chosen add-ons. At most 50.
-        quantity:
-          description: Number of units, 1–99.
-        notes:
-          description: A note for the kitchen about this line.
-
-    PublicCoupon:
-      description: >-
-        An offer or coupon, as `GET /menu` lists them in `coupons` (code-based)
-        and `promotions` (automatic). The code itself is never included: the
-        customer types it, and `POST /coupons/validate` decides whether it
-        applies.
-      properties:
-        displayName:
-          description: A short name for banners.
-        displayBadge:
-          description: A short badge text, for example "-20%".
-        discountType:
-          description: >-
-            Treat unknown values as a general offer, since more types may be
-            added. `BUNDLE` means "X for Y kr".
-        discountValue:
-          description: >-
-            `PERCENT`: percent. `FIXED` and `FIXED_PRICE`: øre. `BUNDLE`: the
-            price in øre for one bundle of `bundleQuantity` units, not the
-            discount; show `discount` from validate or preview-auto.
-        minimumOrder:
-          description: Minimum subtotal in øre.
-        isAutomatic:
-          description: "`true` for automatic promotions, `false` for code-based coupons."
-        allowedDaysOfWeek:
-          description: 0 = Sunday … 6 = Saturday (Europe/Oslo). An empty list means every day.
-        allowedFulfillment:
-          description: "`PICKUP` or `DELIVERY` if the offer is limited to one of them, otherwise `null`."
-        allowedTimeStart:
-          description: HH:MM, Europe/Oslo.
-        allowedTimeEnd:
-          description: HH:MM, Europe/Oslo.
-        bundleQuantity:
-          description: "`BUNDLE` only: number of units in one bundle. `null` for other types."
-        bundleTierKey:
-          description: >-
-            `BUNDLE` only: only variants with this `addonTierKey` count (for
-            example "stor"). `null` means all sizes.
-        maxBundlesPerOrder:
-          description: "`BUNDLE` only: maximum bundles per order. `null` means no limit."
-        categories:
-          description: The categories the offer applies to when `appliesTo` is `CATEGORIES`.
-        products:
-          description: The products the offer applies to when `appliesTo` is `PRODUCTS`.
-
-    RestaurantCapabilities:
-      description: >-
-        What the restaurant offers right now, controlled from its dashboard.
-        Build your UI from this object instead of keeping your own feature
-        flags. Treat a missing or `false` field as "not offered".
-      properties:
-        pickup:
-          description: Customers can order for pickup.
-        delivery:
-          description: Customers can order delivery.
-        reservations:
-          description: The restaurant takes table reservations.
-        payment:
-          description: >-
-            Checkout options. `online` sends the customer to one hosted SagaPay
-            page, where they choose card, Vipps or another enabled method.
-            `cash` is paid at pickup or delivery. In a sandbox, `online` is
-            simulated: the payment page is LettBestilt's test page, and no money
-            moves.
-
-    CreateOrderRequest:
-      properties:
-        items:
-          description: The cart, 1–100 lines.
-        fulfillment:
-          description: Pickup or delivery. Check `restaurant.capabilities` for what the restaurant offers.
-        orderType:
-          description: >-
-            Always `TAKEAWAY` (15 % VAT on food). For table reservations, use
-            `POST /reservations` instead.
-        customerName:
-          description: The customer's name.
-        customerEmail:
-          description: The order confirmation is sent here.
-        customerPhone:
-          description: The customer's phone number.
-        deliveryAddress:
-          description: The street address for delivery.
-        deliveryCity:
-          description: The postal town for delivery.
-        deliveryPostalCode:
-          description: Four digits. Used to match postal-code delivery zones (`POSTAL_CODES`).
-        deliveryLat:
-          description: >-
-            Latitude of the delivery address. Required to match radius-based
-            delivery zones (`RADIUS`); postal-code zones only need
-            `deliveryPostalCode`. Get it from `GET /address-search`.
-        deliveryLng:
-          description: >-
-            Longitude of the delivery address. Required to match radius-based
-            delivery zones (`RADIUS`); postal-code zones only need
-            `deliveryPostalCode`.
-        deliveryNotes:
-          description: A note for the driver, for example a door code.
-        pickupNotes:
-          description: A note for the restaurant about the pickup.
-        requestedPickupAt:
-          description: >-
-            Optional. The pickup or delivery time for a pre-order (ISO 8601,
-            UTC). Leave it out for as soon as possible. Opening hours, menu
-            schedules and coupon rules are checked against this time.
-        couponCode:
-          description: >-
-            A coupon code the customer typed. When a code is sent, automatic
-            promotions are not applied.
-        expectedTotal:
-          description: >-
-            Optional. The total in øre you showed the customer. If the server's
-            total is higher, the order is rejected with `409 PRICE_CHANGED` and
-            nothing is created. A lower total is accepted (the customer pays less
-            than they saw), so an automatic promotion you could not predict never
-            blocks checkout.
-        paymentMethod:
-          description: >-
-            `STRIPE` for online payment: the response includes `stripeUrl`,
-            SagaPay's hosted page, where the customer chooses card, Vipps or
-            another enabled method. `CASH` is paid at pickup or delivery. `VIPPS`
-            is only accepted for old direct-Vipps integrations.
-        locale:
-          description: The language of emails to the customer. Defaults to `nb`.
-        consentGivenAt:
-          description: Optional. When the customer gave marketing consent (ISO 8601).
-        marketingOptIn:
-          description: The customer's consent to marketing, given at checkout.
-        attributionCampaignId:
-          description: >-
-            Campaign attribution: the value of `?lb_campaign=<id>` from a link in
-            the restaurant's newsletter. Pass it on unchanged at checkout, and the
-            order counts as a conversion for the campaign. The tracking script
-            gives it to you with `LettBestilt.orderFields()`; see
-            [Campaign tracking](/campaign-tracking). Optional metadata: an
-            invalid or unknown ID is dropped and never blocks the order. The
-            `ORDER_CREATED` and `ORDER_PAID` webhooks show the result in
-            `attributedCampaignId`.
-        buyerCompanyName:
-          description: "B2B: the company name on the receipt."
-        buyerOrgNumber:
-          description: "B2B: Norwegian organization number, exactly 9 digits. Spaces are removed."
-
     CreateOrderResponse:
       properties:
-        orderId:
-          description: The order's internal ID. Keep it for support requests, but do not put it in URLs.
-        publicToken:
-          description: Safe to put in URLs and share with the customer. Use it with `GET /orders/{token}`.
         totals:
           x-fern-type-name: OrderTotals
-          description: >-
-            The authoritative totals, calculated by the server. Your own prices
-            are only for display. Show these to the customer before you redirect
-            to payment.
-          properties:
-            subtotal:
-              description: The sum of all lines including add-ons, in øre.
-            deliveryFee:
-              description: The delivery fee in øre (0 for pickup).
-            discount:
-              description: The applied coupon or automatic promotion, in øre.
-            total:
-              description: "`subtotal + deliveryFee − discount`, in øre."
-            currency:
-              description: The restaurant's currency, for example "NOK".
-        stripeUrl:
-          description: >-
-            SagaPay's hosted payment page, for online orders. Redirect the
-            customer here; they choose card, Vipps or another enabled method on
-            the page. The field name is historical and does not say which
-            provider is used. In a sandbox the link points to LettBestilt's test
-            payment page (`/sandkasse/betaling/{token}`) instead of SagaPay; no
-            money moves.
-        vippsUrl:
-          description: Only for old direct-Vipps integrations. Use `stripeUrl` for online payment.
-
-    PartnerRestaurant:
-      description: A restaurant as the partner key alone sees it. No contact details, payment status or customer data.
-      properties:
-        slug:
-          description: The restaurant's identifier everywhere in `/api/v1`.
-        environment:
-          description: "`TEST` for a sandbox, `LIVE` for a real restaurant."
-        sandbox:
-          description: "`true` for a sandbox."
-        live:
-          description: >-
-            A real restaurant that has gone live and takes orders. A new real
-            restaurant is not live until its owner has signed the agreements,
-            LettBestilt has approved it (the partner asks for go-live approval
-            in LettBestilt Partner, or with `POST …/{slug}/go-live-review` once
-            live partner keys are available) and the owner has set it live.
-            Always `false` for sandboxes; they accept test orders in `/api/v1`
-            anyway.
-        archived:
-          description: Archived with `DELETE` (real restaurants only). Only LettBestilt can restore it.
-    PartnerRestaurantList:
-      properties:
-        nextCursor:
-          description: Send as `cursor` to get the next page. `null` on the last page.
-    PartnerRestaurantCreate:
-      properties:
-        name:
-          description: The restaurant's name, 2–80 characters.
-        slug:
-          description: >-
-            Lowercase letters, digits and hyphens, 2–32 characters. Becomes
-            `{slug}.lettbestilt.no` and the restaurant's key in `/api/v1`.
-            Stored in lowercase.
-        email:
-          description: The restaurant's contact email. For a sandbox, use your own address.
-        phone:
-          description: Optional phone number.
-        orgNumber:
-          description: Optional organization number.
-        pickupEnabled:
-          description: Offer pickup. Defaults to `true`.
-        deliveryEnabled:
-          description: Offer delivery. Defaults to `false`.
-    PartnerRestaurantApiKey:
-      description: A restaurant key (`lbs_…`) as the partner sees it. Never the key itself or its hash.
-      properties:
-        id:
-          description: Used to rotate and revoke the key.
-        name:
-          description: The name you gave the key.
-        last4:
-          description: The last four characters of the key.
-        scopes:
-          description: '`["*"]` is full access. Otherwise the scopes the key is limited to.'
-        status:
-          description: "`expiring`: the key expires within 14 days and has not been rotated out. `expired` and `revoked` keys no longer work. A key scheduled for revocation by a rotation stays `active` until then; see `revokedAt`."
-        expiresAt:
-          description: The expiry date, or `null` for no expiry.
-        revokedAt:
-          description: When the key was revoked. A time in the future means it still works until then (rotation with a grace period).
-        lastUsedAt:
-          description: Last use, with a resolution of about 5 minutes.
-    PartnerNewRestaurantKey:
-      description: A new restaurant key with the plain-text key in `key`, shown once. The same shape on creation and rotation.
-      properties:
-        key:
-          description: "`lbs_test_…` or `lbs_live_…`. Store it now; it is never shown again."
-    PartnerRestaurantCreated:
-      properties:
-        restaurantKey:
-          description: >-
-            The new restaurant key with full access, in plain text once (`201`).
-            `null` on a replay (`200`): the key is never shown again. If you
-            lost it, create a new key for the restaurant in LettBestilt Partner.
-        replayed:
-          description: "`true` when the response is a replay of the same `Idempotency-Key`."
-        message:
-          description: On a replay, why the key is missing and where to create a new one.
-    PartnerWebhook:
-      description: A webhook subscription. The signing secret is only shown when it is created.
-      properties:
-        active:
-          description: "`false` when the webhook is paused. Events that happen while it is paused are not stored or sent."
-        lastDeliveryStatus:
-          description: The HTTP status your endpoint returned on the last delivery.
-        lastFailureReason:
-          description: A fixed category, for example `HTTP 500` or `request timeout`.
-    PartnerWebhookCreated:
-      properties:
-        secret:
-          description: The signing secret (`whsec_…`) for the HMAC-SHA256 signature, shown once.
-    PartnerRestaurantDetails:
-      description: Details, available with both keys. No contact details or customer data.
-      # allOf is merged by index: index 0 is the PartnerRestaurant $ref, left as it is.
-      allOf:
-        - {}
-        - properties:
-            archivedAt:
-              description: When the restaurant was archived, or `null`.
-            setup:
-              properties:
-                confirmedSteps:
-                  description: Setup steps the restaurant has confirmed in its getting-started flow.
-                totalSteps:
-                  description: The number of setup steps.
-                launched:
-                  description: The owner has set the restaurant live at least once.
-            payment:
-              description: Online payment with SagaPay. `null` for sandboxes, where payment is simulated.
-            domains:
-              description: The restaurant's verified domains.
-
     Error:
-      description: >-
-        The error envelope used by every endpoint. Branch on `error.code`, not
-        on `message`.
       properties:
         error:
           x-fern-type-name: ErrorBody
-          properties:
-            code:
-              description: >-
-                A machine-readable error code. The list comes from the platform
-                spec, which a test keeps in step with the code. See the Errors
-                guide for what each code means.
-            message:
-              description: >-
-                A human-readable explanation. Often in Norwegian, and for
-                business rules usually suitable to show the customer.
-            details:
-              description: >-
-                Extra data for some codes, for example `issues` for
-                `VALIDATION_FAILED`, the totals for `PRICE_CHANGED` or
-                `requiredScope` for `INSUFFICIENT_SCOPE`.
-            requestId:
-              description: >-
-                The same value as the `X-Request-Id` response header. Search for
-                it in the API log in LettBestilt Partner, and include it when you
-                contact LettBestilt.
