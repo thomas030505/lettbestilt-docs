@@ -115,7 +115,7 @@ A slug that is already in use gives `409 SLUG_TAKEN`. That does not count toward
 ## Read, list and delete
 
 - `GET /partner/restaurants` lists your restaurants with slug, name, environment, whether it is live or archived, and when it was created. It is paginated: pass `nextCursor` back as `cursor` until it is `null`. `limit` is 1–100 (default 25).
-- `GET /partner/restaurants/{slug}` returns setup status, SagaPay status, owner status (`owner`) and go-live status (`goLive`) (these three are `null` for sandboxes), verified domains, webhooks without secrets, and the restaurant's keys: name, last four characters, environment, scopes and expiry.
+- `GET /partner/restaurants/{slug}` returns setup status, SagaPay status (`payment`), owner status (`owner`) and go-live status (`goLive`) (these three are `null` for sandboxes), verified domains, webhooks without secrets, and the restaurant's keys: name, last four characters, environment, scopes and expiry.
 - `DELETE /partner/restaurants/{slug}`:
   - **A sandbox is deleted for good**, together with its keys. A second `DELETE` with the same key therefore gives `401`. Confirm with the list that the slug is gone. A sandbox with accounting records that must be kept cannot be deleted (`409 RETENTION`).
   - **A real restaurant is never deleted.** It is archived: turned off and closed in `/api/v1`, while orders and accounting records are kept. Its webhooks are paused. You can still read it, revoke its keys and delete its webhooks, but not rotate keys or add webhooks (`409 RESTAURANT_ARCHIVED`). **Only LettBestilt can restore an archived restaurant.**
@@ -164,6 +164,8 @@ Drafts are deleted after 7 days. A second commit, also after a lost response, gi
 ## Inviting the owner
 
 `POST …/owner-invite` with `{ "name": "…", "email": "…" }` emails the restaurant's owner an invitation. The owner creates their own login, signs the customer agreement and the data processing agreement, sets up online payment with SagaPay and sets the restaurant live. You cannot do those steps for the owner.
+
+`payment.state` tells you who acts next: `NOT_STARTED` (the owner has not applied for online payment), `WAITING_FOR_OWNER` (the application is with the owner: registration with BankID, signing or more information), `IN_PROGRESS` (SagaPay is setting it up), `ACTIVE` and `FAILED` (the application stopped; the owner can start again under Betaling in the dashboard). Subscribe to the [`PAYMENT_SETUP_UPDATED`](/api-reference/webhooks/payment-setup-updated) webhook to be told when it changes, for example to remind the owner while it is `WAITING_FOR_OWNER`. The restaurant can go live with cash payment while online payment is not ready.
 
 - For real restaurants without an owner only, so it needs a live key. A sandbox gives `409 SANDBOX_NOT_SUPPORTED`, and a restaurant with an owner gives `409 OWNER_EXISTS`.
 - The invitation expires after 7 days. Calling again resends it, replaces the open invitation (also to a different email) and gives 7 new days. `Idempotency-Key` is not used.

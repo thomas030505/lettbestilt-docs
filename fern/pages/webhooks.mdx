@@ -25,6 +25,7 @@ You then receive a signing secret, starting with `whsec_`. It is shown only once
 | [`RESERVATION_REQUESTED`](/api-reference/webhooks/reservation-requested) | A guest requests a table |
 | [`RESERVATION_APPROVED`](/api-reference/webhooks/reservation-approved) | The restaurant approves the request and assigns a table |
 | [`RESERVATION_REJECTED`](/api-reference/webhooks/reservation-rejected) | The restaurant rejects the request |
+| [`PAYMENT_SETUP_UPDATED`](/api-reference/webhooks/payment-setup-updated) | The state of the restaurant's online payment setup (SagaPay) changes, for example to `WAITING_FOR_OWNER` or `ACTIVE` |
 
 There is no event for a payment that fails or is abandoned. Such an order never gets `ORDER_PAID`.
 
@@ -48,7 +49,7 @@ Every event has the same envelope:
 }
 ```
 
-`data` always has `orderId`, `orderNumber` and `publicToken`. The rest depends on the event:
+For order and reservation events, `data` always has `orderId`, `orderNumber` and `publicToken`. The rest depends on the event:
 
 | Event | Also in `data` |
 |---|---|
@@ -58,6 +59,7 @@ Every event has the same envelope:
 | `RESERVATION_REQUESTED` | `dineInAt`, `partySize` |
 | `RESERVATION_APPROVED` | `dineInAt`, `partySize`, `tableId` |
 | `RESERVATION_REJECTED` | `reason` (or `null`) |
+| `PAYMENT_SETUP_UPDATED` | `restaurantSlug`, `payment` (`state`, `label`, `description`) and `previousState`. No order fields |
 
 `attributedCampaignId` is the newsletter campaign the order was credited to, or `null`; see [Campaign tracking](/campaign-tracking). Times are ISO 8601 in UTC. For reservations, `orderId` is the same value as `reservationId` from `POST /reservations`. Need more than the payload? Fetch the order with `GET /orders/{publicToken}`.
 
