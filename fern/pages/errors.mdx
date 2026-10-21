@@ -20,7 +20,9 @@ Errors use one envelope:
 
 Every response, success or error, has an `X-Request-Id` header, and errors repeat it as `error.requestId`. Log it. You can search for it in the restaurant's API log in LettBestilt Partner (the partner portal) to see what happened, and include it when you contact LettBestilt. See [Debugging with request IDs](/debugging).
 
-Branch on `code`, never on `message`. `message` is written for people and is often in Norwegian; for business rules (sold out, closed, outside the delivery zone) it is usually fine to show the customer as it is. `details` is only present for some codes.
+**Show `error.message` to the customer as it is.** It is in Norwegian and written for the customer ("Restauranten er stengt nå. Bestilling er ikke mulig.", "Pizza Margherita er dessverre utsolgt."), so do not replace it with your own text such as "Noe gikk galt". **Use `error.code` for your own logic**, never `message`: the wording can change, the code does not. `details` is only present for some codes.
+
+Every code `POST /orders` can return, with what to do, is in [Build an ordering flow](/build-an-ordering-flow#handle-errors).
 
 | Code | Status | Meaning |
 |---|---|---|
@@ -42,7 +44,8 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PARTNER_DATA_LOCKED` | 403 | Partner API: the real restaurant's owner has not signed the customer agreement and the data processing agreement yet. Webhooks carry customer data, so they can only be added after that |
 | `KEY_ROLE_FORBIDDEN` | 403 | Partner API: the partner key's creator is no longer an owner or administrator, so the key can read but not change your brand, profile or news. `details.capability` says which access is missing. A rotated key counts as created by the person who rotated it |
 | `WHITE_LABEL_REQUIRED` | 403 | Partner API: hiding "Drevet av LettBestilt", a sender domain, or dashboard colours and font need white label in the partner agreement. `details.field` names the field |
-| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website or a logo link, publish news to real restaurants, or change `website` or `googleReviewUrl` on a real restaurant that is live |
+| `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website, remove a logo, publish news to real restaurants, or change `website` or `googleReviewUrl` on a real restaurant that is live |
+| `WEBHOOK_HOST_NOT_TRUSTED` | 403 | Partner API and LettBestilt MCP: you tried to turn on a webhook on a real restaurant whose host is not a domain a person verified for the restaurant, or your website. A person turns it on in LettBestilt Partner |
 | `PARTNER_NEWS_FORBIDDEN` | 403 | Partner API: only external partners send news to their restaurants |
 | `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug. In the partner API also when the slug belongs to another partner or does not match the restaurant key |
 | `KEY_NOT_FOUND` | 404 | Partner API: the key does not belong to the restaurant, or is already revoked |
@@ -103,6 +106,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PAYLOAD_TOO_LARGE` | 413 | The JSON body is over 1 MB. |
 | `VALIDATION_FAILED` | 422 | The body failed validation (`details.issues` lists the fields), or the order breaks a business rule |
 | `FULFILLMENT_NOT_ALLOWED` | 422 | A product is pickup-only or delivery-only, and the order asked for the other |
+| `PRODUCT_UNAVAILABLE` | 422 | `POST /orders`: a product, size or addon in the cart is unknown or no longer active, for example because the menu changed after the page was loaded. Show `error.message`, load the menu again and let the customer adjust the cart |
 | `DINE_IN_DISABLED`, `PARTY_TOO_LARGE`, `TOO_EARLY` | 422 | Reservation rejections. See [Table reservations](/reservations) |
 | `NO_TABLE`, `INVALID_PARTY_SIZE` | | Reserved for table reservations. `POST /reservations` does not return them today: the restaurant assigns a table when it approves the request |
 | `OWNER_EMAIL_NOT_ALLOWED` | 422 | Partner API: the owner's email belongs to a partner user, an open invitation to a partner team or a member of the restaurant |
@@ -120,7 +124,8 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `PDF_PARSE_TIMEOUT` | 422 | Partner API, menu import: reading the menu took too long. Try again, or split the menu into smaller files |
 | `MENU_IMPORT_TOO_BIG` | 422 | Partner API, menu import: the menu is too large to read in one go. Split it into smaller files |
 | `MENU_IMPORT_EMPTY` | 422 | Partner API, menu import: no dishes with prices were found in the file |
-| `LOGO_NOT_ALLOWED` | 422 | Partner API: `logoUrl` or `logoLightUrl` is not a file uploaded to LettBestilt. `details.field` says which |
+| `LOGO_NOT_ALLOWED` | 422 | Partner API: `logoUrl` or `logoLightUrl` is not a file uploaded to LettBestilt. Through LettBestilt MCP the link must be a file that is already yours (the current logo or light logo, or a file you uploaded); send the file instead. `details.field` says which |
+| `ADDRESS_NOT_FOUND` / `ADDRESS_AMBIGUOUS` | 422 | LettBestilt MCP: the address in `visitingAddress` or `centerAddress` had no match, or several different matches, in the Norwegian address register. `details.candidates` lists them; nothing was saved |
 | `IMAGE_NOT_ALLOWED` | 422 | Partner API: an image in a news item was not uploaded to LettBestilt |
 | `NO_RECIPIENTS` | 422 | Partner API: none of the news item's recipients can be reached now |
 | `SENDER_DOMAIN_REJECTED` | 422 | Partner API: the e-mail service did not accept the domain or the call |
@@ -131,6 +136,7 @@ Branch on `code`, never on `message`. `message` is written for people and is oft
 | `UPLOAD_FAILED` | 502 | Partner API: the logo could not be stored right now. Try again |
 | `MENU_IMPORT_UNAVAILABLE` | 503 | Partner API, menu import: the language model did not answer, and an image or scanned PDF has no fallback. Try again shortly |
 | `EMAIL_SERVICE_UNAVAILABLE` | 503 | Partner API: the e-mail service did not answer. Try again in a moment |
+| `GEOCODING_UNAVAILABLE` | 503 | LettBestilt MCP: the address register did not answer. Try again, or send the coordinates |
 | `PAYMENT_PROVIDER_UNAVAILABLE` | 503 | `POST /orders`: SagaPay did not answer when the payment page was created. The order failed and has no payment link |
 | `INTERNAL_ERROR` | 5xx | Something failed on our side or at a provider |
 

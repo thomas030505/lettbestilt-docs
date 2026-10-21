@@ -157,6 +157,7 @@ curl -X POST "$API/$SLUG/delivery-zones" "${AUTH[@]}" \
 - Postal codes are four digits. A `POSTAL_CODES` zone needs at least one; a `RADIUS` zone needs `centerLat`, `centerLng` and `radiusKm`. Fields for the other type (`postalCodes` on a `RADIUS` zone, or a centre or radius on a `POSTAL_CODES` zone) give `422`, both when you create and when you change a zone; an empty list or `null` is fine.
 - `PATCH …/delivery-zones/{zoneId}` changes the fields you send, and checks the result: changing `type` to `RADIUS` without a centre gives `422` with the path `centerLat`.
 - Turn a zone off with `{ "isActive": false }`. If it was the last active zone, delivery stops without a warning while `deliveryEnabled` is still `true`.
+- **Overlapping zones.** When several active zones cover the customer's address, the customer gets the zone with the lowest delivery fee. On a tie, the one with the lowest minimum order, then the one with the smallest radius. The order of the zones does not matter.
 - A restaurant can have up to 50 zones (`409 DELIVERY_ZONE_LIMIT`).
 - `name` and `centerLabel` are cleaned like menu text; `textCleaned` is in the response when something was removed. The same goes for `label` on opening hours overrides.
 - The go-live check has a `delivery` point: a warning when delivery is on without an active zone.

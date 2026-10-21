@@ -14,6 +14,10 @@ Webhooks are set up per restaurant, in LettBestilt Partner (the partner portal) 
 
 You then receive a signing secret, starting with `whsec_`. It is shown only once, so store it as a secret on your server. A restaurant can have up to 10 webhooks. A sandbox and the real restaurant each have their own webhooks and secrets.
 
+<Note>
+Webhooks on a real restaurant carry customer data. A webhook you create with the partner API or LettBestilt MCP is only active when its host is a domain of the restaurant that a person verified, or your website. Otherwise it is created paused, with `pausedReason` saying why, and turning it on through the API or MCP gives `403 WEBHOOK_HOST_NOT_TRUSTED`. A person turns it on on the restaurant's **Webhooks** tab in the partner portal. Sandboxes are not affected.
+</Note>
+
 ## Events
 
 | Event | When |
