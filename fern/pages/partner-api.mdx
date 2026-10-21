@@ -112,7 +112,7 @@ The restaurants and their customers see your support email and phone, in the cus
 
 **New terms mean a new signature.** If LettBestilt changes something in your signed partner agreement, such as the price or your company's name or organisation number, the signature no longer counts. The team member who signs gets an email, and signs again under **Kom i gang** in the partner portal. Until then, the restaurants you have keep working, but a new real restaurant gives `403 PARTNER_AGREEMENT_REQUIRED`.
 
-The body also needs `customerPrice` (`startupFeeOere`, `monthlyFeeOere`, optionally `bindingMonths` and `freeMonths`): what the restaurant pays you, in øre and whole kroner. It goes into the customer agreement the owner signs and cannot be changed after that. Without it: `422 VALIDATION_FAILED` with `path: "customerPrice"`.
+The body also needs `customerPrice` (`startupFeeOere`, `monthlyFeeOere`, optionally `bindingMonths` and `freeMonths`): what the restaurant pays you, in øre and whole kroner. It goes into the customer agreement the owner signs. You can change it in LettBestilt Partner (the restaurant's Overview); after the owner has signed, a change becomes new terms the owner must sign before they apply, and until then the signed price stays (`customerPrice.pending` in `GET …/{slug}` shows the proposal, `locked` is `true`). Without it: `422 VALIDATION_FAILED` with `path: "customerPrice"`.
 
 Sandboxes (test partner key) need none of this.
 
