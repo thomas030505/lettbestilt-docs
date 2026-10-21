@@ -40,7 +40,7 @@ Before you show an order button, check:
 
 `categories` only contains menus that are active right now, and products that are hidden or sold out are left out. A product that is not in the menu cannot be ordered.
 
-**Shared products.** A restaurant can list the same product in several menus, for example the dinner pizzas in the lunch menu. It is one product with one `id`, price and availability. Where it is shared into a category it has `shared: true`, and `homeMenuId` is the menu it lives in. A cart line uses the same `id` wherever the customer picked it, and the product can be ordered while any menu it is listed in is active.
+**Shared products.** A restaurant can list the same product in several menus, for example the dinner pizzas in the lunch menu. It is one product with one `id`, price and availability. Where it is shared into a category it has `shared: true`, and `homeMenuId` is the menu it lives in. A cart line uses the same `id` wherever the customer picked it, and the product can be ordered while any menu it is listed in is active. Send the `id` of the category the customer picked it from as `categoryId` on the cart line: addon groups that belong to a category follow it, so the lunch menu's addons apply to a pizza picked from the lunch menu. A `categoryId` that is not one of the categories the product can be ordered from now is ignored; then the product's own category comes first.
 
 ### Build the cart
 
@@ -83,7 +83,7 @@ const { hits } = await fetch(
 ```
 </CodeBlocks>
 
-Send `lat`/`lng` as `deliveryLat`/`deliveryLng` and the postal code as `deliveryPostalCode`. Radius-based delivery zones need the coordinates; postal-code zones need the postal code. The zone decides the delivery fee and minimum order; you find the zones in `restaurant.deliveryZones` in the menu. When several active zones cover the address, the customer gets the zone with the **lowest delivery fee**; on a tie the one with the lowest minimum order, then the one with the smallest radius. Pick the zone the same way when you show the fee before checkout.
+Send `lat`/`lng` as `deliveryLat`/`deliveryLng` and the postal code as `deliveryPostalCode`. Radius-based delivery zones need the coordinates; postal-code zones need the postal code. The zone decides the delivery fee and minimum order; you find the zones in `restaurant.deliveryZones` in the menu. When several active zones cover the address, the zones whose minimum order the cart reaches compete, and the customer gets the one with the **lowest delivery fee**; on a tie the one with the lowest minimum order, then the one with the smallest radius. So two zones over the same area, one with a fee and one with fee 0 and a minimum of 500 kr, give free delivery from 500 kr. When the cart reaches no covering zone's minimum, the order is rejected with the lowest minimum among them. Pick the zone the same way when you show the fee before checkout, and pick it again when the cart changes.
 
 ### Show discounts
 

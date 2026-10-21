@@ -46,7 +46,7 @@ Every code `POST /orders` can return, with what to do, is in [Build an ordering 
 | `KEY_ROLE_FORBIDDEN` | 403 | Partner API: the partner key's creator no longer has the role Partner or Administrator on your team, so the key can read but not change your brand, profile or news. `details.capability` says which access is missing. A rotated key counts as created by the person who rotated it |
 | `WHITE_LABEL_REQUIRED` | 403 | Partner API: hiding "Drevet av LettBestilt", a sender domain, or dashboard colours and font need white label in the partner agreement. `details.field` names the field |
 | `HUMAN_REQUIRED` | 403 | LettBestilt MCP tried something only a person does: set the website, remove a logo, publish news to real restaurants, or change `website` or `googleReviewUrl` on a real restaurant that is live |
-| `WEBHOOK_HOST_NOT_TRUSTED` | 403 | LettBestilt MCP: you tried to turn on a webhook on a real restaurant whose host is not a domain a person verified for the restaurant, or your website. A person turns it on in LettBestilt Partner |
+| `WEBHOOK_HOST_NOT_TRUSTED` | 403 | LettBestilt MCP: you tried to turn on a webhook on a real restaurant whose host is not a domain a person verified for the restaurant. A person turns it on in LettBestilt Partner |
 | `PARTNER_NEWS_FORBIDDEN` | 403 | Partner API: only external partners send news to their restaurants |
 | `RESTAURANT_NOT_FOUND` | 404 | No live restaurant has this slug. In the partner API also when the slug belongs to another partner or does not match the restaurant key |
 | `KEY_NOT_FOUND` | 404 | Partner API: the key does not belong to the restaurant, or is already revoked |
@@ -91,7 +91,7 @@ Every code `POST /orders` can return, with what to do, is in [Build an ordering 
 | `MENU_IS_DEFAULT` | 409 | Partner API: the default menu cannot be deleted. Make another menu the default first |
 | `CATEGORY_NOT_EMPTY` | 409 | Partner API: the category still has active products or subcategories |
 | `CATEGORY_LIMIT` | 409 | Partner API: the menu would get more than 60 categories (subcategories included) |
-| `PRODUCT_LIMIT` | 409 | Partner API: the restaurant would get more than 800 active or 2000 products in all, also when committing a menu import |
+| `PRODUCT_LIMIT` | 409 | Partner API: the restaurant would get more than 800 active or 2000 products in all, also when committing a menu import, or more than 2000 shared products |
 | `ADDON_GROUP_LIMIT` | 409 | Partner API: the restaurant already has 100 addon groups |
 | `PARTNER_ARCHIVED` | 409 | Partner API: the partner is suspended or archived, so its profile, sender domain and news cannot be changed |
 | `NOT_DRAFT` | 409 | Partner API: only a news draft can be changed, deleted or scheduled |
