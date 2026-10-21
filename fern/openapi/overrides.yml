@@ -823,6 +823,21 @@ paths:
               allergens:
                 - WHEAT
                 - MILK
+  /api/v1/partner/restaurants/{slug}/categories/{categoryId}/placements:
+    post:
+      operationId: sharePartnerProduct
+      tags:
+        - Partner
+      requestBody:
+        content:
+          application/json:
+            example:
+              productId: prod_123
+  /api/v1/partner/restaurants/{slug}/categories/{categoryId}/placements/{productId}:
+    delete:
+      operationId: unsharePartnerProduct
+      tags:
+        - Partner
   /api/v1/partner/restaurants/{slug}/products/batch:
     post:
       operationId: createPartnerProductsBatch

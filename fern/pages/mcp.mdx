@@ -113,13 +113,13 @@ The partner portal shows the setup in three steps on **Innstillinger → Partner
 
 ## Tools
 
-The 52 tools come in six classes. The class is fixed in the server and enforced on every call.
+The 54 tools come in six classes. The class is fixed in the server and enforced on every call.
 
 | Class | Tools | Restaurant | Changes something | Where | Extra limit |
 |---|---|---|---|---|---|
 | Read | 18 | Some | No | Sandboxes and real restaurants | |
 | Setup | 10 | Yes | Some | Sandboxes and real restaurants | 60 per hour per partner key for the tools that change something |
-| Configuration | 14 | Yes | Yes | Sandboxes and real restaurants | 300 per hour per partner key |
+| Configuration | 16 | Yes | Yes | Sandboxes and real restaurants | 300 per hour per partner key |
 | Partner | 1 | No | Yes | Test partner key only | The partner API's limits for creating restaurants |
 | Partner account | 7 | No | Yes | Test and live partner keys | 60 per hour per partner key |
 | Sandbox only | 2 | Yes | Yes | Sandboxes only | 30 test orders per hour per partner key |
@@ -181,6 +181,8 @@ Tools that only read are marked `readOnlyHint`. `publish_menu`, `set_menu_schedu
 | `update_category` | Changes a category (`PATCH …/categories/{categoryId}`), or hides it and its products with `isActive: false` |
 | `add_products` | Adds 1 to 50 products in one call (`POST …/products/batch`), all or nothing: one invalid product fails the call with the path in `details.issues` (for example `products.2.categoryId`) and nothing is saved |
 | `update_product` | Changes a product (`PATCH …/products/{productId}`): price, description, allergens, sizes, `isAvailable` (sold out for now), `isActive` (hidden for good). Sizes are sent as the whole set with their `id`; a set that leaves out an existing size gives `VALIDATION_FAILED`. `expectedVersion` is required: the product's `version` from `get_menu` or the last write; `CHANGED` means the product changed after it was read |
+| `share_product` | Shows a product the restaurant already has also in another category, often in another menu (`POST …/categories/{categoryId}/placements`), instead of copying it. Price, sizes, allergens, addons and sold out live on the one product, so a change applies in every menu it is in. Sharing it again changes nothing (`created: false`) |
+| `unshare_product` | Takes a shared product out of one category (`DELETE …/categories/{categoryId}/placements/{productId}`). The product is never deleted and stays where it lives (`sharedFrom` in `get_menu`) |
 | `set_addon_group` | Without `groupId`: creates an addon group (`POST …/addon-groups`). With `groupId`: changes it (`PATCH …/addon-groups/{groupId}`), and then `expectedVersion` from `get_menu` is required; addons are sent as the whole set with their `id`, and a set that leaves out an existing addon gives `VALIDATION_FAILED`. `minSelect` can be at most the number of available addons, and `isRequired` must agree with `minSelect` (true exactly when it is above 0); a required `GLOBAL` group comes back with a warning, since every product then needs a choice |
 
 These tools call the [partner API endpoints for setting up a restaurant](/partner-setup-api) in the same process, with both keys. They validate, rate limit and fail exactly like the API: a format error comes back as `VALIDATION_FAILED` with the field in `details.issues`, and `CHANGED`, `LEGAL_LOCKED`, `DEMO_RESTAURANT`, `MENU_NOT_FOUND`, `CATEGORY_LIMIT` and the other codes come back unchanged. `RATE_LIMITED` carries `details.retryAfterSeconds`.
@@ -209,7 +211,7 @@ Your brand, profile and sender domain belong to you as a partner, not to an envi
 | `update_partner_news` | Changes a draft (`PATCH /api/v1/partner/news/{newsId}`), with `expectedUpdatedAt` |
 | `publish_partner_news` | `publish`, `schedule` (with `scheduledAt`) or `unschedule` a news item (`POST …/news/{newsId}/publish`). With a test key it publishes to sandboxes. With a live key, `publish` and `schedule` give `403 HUMAN_REQUIRED`: the AI tool writes drafts for real restaurants, and a person publishes them in LettBestilt Partner or with the partner API. There is no `archive` |
 
-These tools call [the partner API endpoints for your own account](/partner-setup-api#your-own-partner-account) in the same process, with only the partner key, so they validate, rate limit and fail like the API: `KEY_ROLE_FORBIDDEN` (the key was not created by an owner or administrator), `WHITE_LABEL_REQUIRED`, `CHANGED`, `NOT_DRAFT`, `NO_RECIPIENTS`, `HUMAN_REQUIRED` and the other codes come back unchanged. The AI tool writes the support details, the logo, the sender domain and the text of a news item only from what you gave it, with no numbers, prices or promises you did not give, and shows you a news draft before it publishes.
+These tools call [the partner API endpoints for your own account](/partner-setup-api#your-own-partner-account) in the same process, with only the partner key, so they validate, rate limit and fail like the API: `KEY_ROLE_FORBIDDEN` (the key was not created by a team member with the role Partner or Administrator), `WHITE_LABEL_REQUIRED`, `CHANGED`, `NOT_DRAFT`, `NO_RECIPIENTS`, `HUMAN_REQUIRED` and the other codes come back unchanged. The AI tool writes the support details, the logo, the sender domain and the text of a news item only from what you gave it, with no numbers, prices or promises you did not give, and shows you a news draft before it publishes.
 
 **Sandbox only** (anything that creates orders or test data):
 
@@ -380,7 +382,7 @@ Every change (sandboxes, opening hours, delivery zones, settings, webhooks, doma
 - **`403 PARTNER_LIVE_KEYS_DISABLED`**: you used a live partner key before LettBestilt Partner is open. Use a test key against a sandbox.
 - **`403 SANDBOX_ONLY`**: test orders and attribution checks only run in sandboxes.
 - **`403 SANDBOX_TEST_KEY_REQUIRED`**: `create_sandbox` needs a test partner key.
-- **`403 KEY_ROLE_FORBIDDEN`** from a partner account tool: the partner key was created by a developer, support or read-only member. Reading still works. An owner or administrator creates a partner key under **Innstillinger → Partnernøkkel (API)**. A rotated key counts as created by the person who rotated it, so a developer who rotates the owner's key gets `403 KEY_ROLE_FORBIDDEN` on brand, profile and news; LettBestilt Partner shows per key whether it can change the partner's own settings.
+- **`403 KEY_ROLE_FORBIDDEN`** from a partner account tool: the partner key was created by a developer, support or read-only member. Reading still works. A team member with the role Partner or Administrator creates a partner key under **Innstillinger → Partnernøkkel (API)**. A rotated key counts as created by the person who rotated it, so a developer who rotates a Partner's key gets `403 KEY_ROLE_FORBIDDEN` on brand, profile and news; LettBestilt Partner shows per key whether it can change the partner's own settings.
 - **`403 HUMAN_REQUIRED`**: a person does this one: publishing news to real restaurants, setting your website, or changing `website` or `googleReviewUrl` on a real restaurant that is live. Do it in LettBestilt Partner or with the partner API.
 - **`CHANGED` from a configuration tool**: someone changed the same thing in between. Read it again (`get_settings`, `get_opening_hours`, `list_delivery_zones`, `get_menu` with `menuId`) and send the change again, with the new `expectedVersion` or `expectedUpdatedAt` where the tool takes one.
 - **A published menu does not show up**: a menu with dates but without `isDefault` or a schedule is never shown while another menu is the default; see [Publish a menu](#publish-a-menu). `list_menus` shows `isLiveNow`, and websites can show the old menu for a few minutes because of caching.

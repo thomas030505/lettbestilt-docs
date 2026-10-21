@@ -40,6 +40,8 @@ Before you show an order button, check:
 
 `categories` only contains menus that are active right now, and products that are hidden or sold out are left out. A product that is not in the menu cannot be ordered.
 
+**Shared products.** A restaurant can list the same product in several menus, for example the dinner pizzas in the lunch menu. It is one product with one `id`, price and availability. Where it is shared into a category it has `shared: true`, and `homeMenuId` is the menu it lives in. A cart line uses the same `id` wherever the customer picked it, and the product can be ordered while any menu it is listed in is active.
+
 ### Build the cart
 
 Each cart line is a product, an optional variant, optional add-ons and a quantity. Calculate the price you display like this; the server does the same calculation when the order is created.
@@ -217,9 +219,9 @@ For your own systems (a back office, a CRM, notifications), subscribe to `ORDER_
 | 409 | `PRICE_CHANGED` | You sent `expectedTotal` and the server's total is higher (`details.expectedTotal`, `actualTotal`) | Fetch the menu again, show the new total and let the customer confirm. Then create the order with a **new** `Idempotency-Key` |
 | 409 | `PAYMENT_PENDING` | The order exists and its payment link is still being created | Wait a couple of seconds and retry with the **same** key |
 | 409 | `PAYMENT_INCOMPLETE` | The order exists but never got a payment link | Start over with a new key |
-| 422 | `PRODUCT_UNAVAILABLE` | A product, size or addon in the cart is unknown or no longer active | Show `error.message`, load the menu again and let the customer adjust the cart |
+| 422 | `PRODUCT_UNAVAILABLE` | A product, size or addon in the cart is unknown, turned off, sold out or outside its menu's hours, or its menu or category is turned off (also the products chosen inside a combo) | Show `error.message`, load the menu again and let the customer adjust the cart |
 | 422 | `FULFILLMENT_NOT_ALLOWED` | A product is pickup-only or delivery-only, and the order asked for the other (`details.productId`, `allowedFulfillment`) | Show `error.message` |
-| 422 | `VALIDATION_FAILED` | The body failed validation (`details.issues`), or the cart breaks a rule: a product sold out or outside its menu's hours, a missing or extra choice, an address outside the delivery zones or not precise enough, under the minimum order, or a coupon that does not apply | Show `error.message`. The cart or customer details need to change |
+| 422 | `VALIDATION_FAILED` | The body failed validation (`details.issues`), or the cart breaks a rule: a combo's rules (how many in a slot, a size or addon that does not fit), too few or too many addons in a group, an address outside the delivery zones or not precise enough, under the minimum order, or a coupon that does not apply | Show `error.message`. The cart or customer details need to change |
 | 429 | `RATE_LIMITED` | Too many orders from this IP or key | Wait for `Retry-After` seconds |
 | 502 | `PAYMENT_PROVIDER_INVALID` | The payment provider returned an unusable payment link | Try again with a new key, or offer cash |
 | 503 | `PAYMENT_PROVIDER_UNAVAILABLE` | SagaPay did not answer. The order failed (no `ORDER_CREATED`) | Offer to try again with a new key, or to pay in cash |

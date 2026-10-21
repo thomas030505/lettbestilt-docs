@@ -5,14 +5,16 @@ subtitle: Changes to the LettBestilt API and the partner tools
 
 Newest first. New fields, endpoints, error codes and events can appear in `/api/v1` at any time, so ignore what you do not recognise.
 
-## 2026-10-21: showPoweredBy, PRODUCT_UNAVAILABLE, go-live steps in plain words, paused webhooks and addresses in LettBestilt MCP
+## 2026-10-21: Shared products, showPoweredBy, PRODUCT_UNAVAILABLE, go-live steps in plain words, paused webhooks and addresses in LettBestilt MCP
 
-No endpoint or field was removed or renamed. **Changes that can affect you:** an unknown or inactive product in `POST /api/v1/orders` now gives `422 PRODUCT_UNAVAILABLE` instead of `422 VALIDATION_FAILED`, and a webhook created through the partner API on a real restaurant can now be created paused (see Changed).
+No endpoint or field was removed or renamed. **Changes that can affect you:** a product in the cart of `POST /api/v1/orders` that is unknown, turned off, sold out or outside its menu's hours now gives `422 PRODUCT_UNAVAILABLE` instead of `422 VALIDATION_FAILED`; a webhook created through the partner API on a real restaurant can now be created paused; and a real restaurant needs your support email, support phone and invoice email (see Changed).
 
 ### New
 
 - **`restaurant.showPoweredBy`** in `GET /api/v1/menu` and `showPoweredBy` in `GET /api/v1/partner/restaurants/{slug}`: show "Drevet av LettBestilt" in the website's footer only when it is `true`. It is `false` when the partner has turned it off with white label.
-- **`422 PRODUCT_UNAVAILABLE`** on `POST /api/v1/orders`: a product, size or addon in the cart is unknown or no longer active. The [full list of order error codes](/build-an-ordering-flow#handle-errors) is new too.
+- **Shared products.** A product can be listed in several menus without a copy: `POST /api/v1/partner/restaurants/{slug}/categories/{categoryId}/placements` with `{ "productId" }` shares it into a category, and `DELETE …/placements/{productId}` takes it out again (the product is never deleted). Price, sizes, allergens, addons and sold out live on the one product. In `GET /api/v1/menu` a shared product has `shared: true` and `homeMenuId`; in the partner API's menu it has `sharedFrom`. LettBestilt MCP has `share_product` and `unshare_product` (54 tools). See [Set up a restaurant through the API](/partner-setup-api) and [Build an ordering flow](/build-an-ordering-flow).
+- **`422 PRODUCT_UNAVAILABLE`** on `POST /api/v1/orders`: a product, size or addon in the cart is unknown, turned off, sold out or outside its menu's hours, or its menu or category is turned off. A combo's rules, too few or too many addons, the delivery zone, the minimum order and coupons are still `VALIDATION_FAILED`. The [full list of order error codes](/build-an-ordering-flow#handle-errors) is new too.
+- **`403 PARTNER_PROFILE_INCOMPLETE`** on `POST /api/v1/partner/restaurants` with a live partner key: your support email, support phone or invoice email is missing (`error.details.missing`). See [Real restaurants](/partner-api#real-restaurants).
 - **`goLive.missingStepDetails`** (each missing step with a Norwegian name and what is missing) and **`goLive.currentChecks`** (the go-live checklist as it is now, before you send the request) in `GET /api/v1/partner/restaurants/{slug}` and LettBestilt MCP's `get_go_live_status`. `missingSteps` is unchanged. See [Go-live approval](/partner-api#go-live-approval).
 - **`pausedReason`** on webhooks in `GET …/{slug}/webhooks`, `GET …/{slug}` and LettBestilt MCP: why a webhook on a real restaurant is paused.
 - **LettBestilt MCP**: addresses instead of coordinates (`visitingAddress` in `update_settings`, `centerAddress` for radius zones), looked up in the Norwegian address register and never guessed; `logoUrl` and `logoLightUrl` in `set_partner_brand` to reuse a logo that is already uploaded; `help` shows a short card, and every tool only when you ask ("hjelp verktøy"). See [LettBestilt MCP](/mcp).
@@ -20,10 +22,12 @@ No endpoint or field was removed or renamed. **Changes that can affect you:** an
 ### Changed
 
 - **Error messages are for the customer.** Show `error.message` as it is (it is Norwegian and written for the customer) and use `error.code` for your own logic. See [Errors](/errors).
-- **Webhooks through the partner API** on a real restaurant follow the same rule as LettBestilt MCP: active only when the host is a domain of the restaurant a person verified, or your website; otherwise created paused, and turning it on through the API gives `403 WEBHOOK_HOST_NOT_TRUSTED`. See [Webhooks](/webhooks).
+- **Webhooks through the partner API** on a real restaurant follow the same rule as LettBestilt MCP: active only when the host is a domain of the restaurant a person verified, or your website; otherwise created paused (`paused: true`, `pausedReason`), and a person turns it on in the partner portal. See [Webhooks](/webhooks).
+- **A changed partner agreement must be signed again.** When LettBestilt changes the terms of your signed partner agreement (such as the price, or your company's name or organisation number), you sign it again under Kom i gang in the partner portal. The restaurants you have keep working; a new real restaurant gives `403 PARTNER_AGREEMENT_REQUIRED` until it is signed.
+- **The top role on your partner team is called Partner** (it was Owner, *Eier*), so it is not confused with the restaurant's owner. Nothing changes in the API.
 - **Overlapping delivery zones**: the customer gets the zone with the lowest delivery fee, then the lowest minimum order, then the smallest radius. See [Build an ordering flow](/build-an-ordering-flow).
 - **A rotated key keeps the expiry date** of the key it replaces. See [Rotating keys](/rotating-keys).
-- **Sandboxes**: you create your first sandbox and partner key yourself under Kom i gang in the partner portal; nothing is created when your partner account is approved. Email that would go to the customer goes to your team members with the role Partner, with `[Sandkasse]` in the subject. After the test payment, a short LettBestilt page sends the customer on to `successUrl`. See [From sandbox to live](/sandbox-to-live).
+- **Sandboxes**: you create your first sandbox and partner key yourself under Kom i gang in the partner portal; nothing is created when your partner account is approved. Email that would go to the customer goes to your team members with the role Partner (and your contact email once you are approved), with `[Sandkasse]` in the subject. After the test payment, a short LettBestilt page sends the customer on to `successUrl`. See [From sandbox to live](/sandbox-to-live).
 
 ## 2026-10-20: Payment setup state, order error codes and the PAYMENT_SETUP_UPDATED webhook
 
