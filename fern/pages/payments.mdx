@@ -50,7 +50,7 @@ A sandbox restaurant cannot be connected to SagaPay, so online payment is simula
 |---|---|---|
 | `stripeUrl` | SagaPay's hosted payment page | LettBestilt's test payment page, `https://www.lettbestilt.no/sandkasse/betaling/{token}`, clearly marked TEST |
 | Paying | The customer pays with card, Vipps or another method | **Betal (test)** marks the order `PAID` |
-| After paying | `successUrl` | `successUrl` |
+| After paying | `successUrl` | `successUrl`, through a short LettBestilt page that sends the customer on (also to `localhost` and the other approved return addresses) |
 | Cancelling | `cancelUrl`; the order becomes `FAILED` | **Avbryt** sends the customer to `cancelUrl`; the order becomes `FAILED` |
 | Webhooks | `ORDER_PAID` when the payment is confirmed | `ORDER_PAID`, the same way |
 | Money | Real | None. Nothing is charged, and nothing reaches accounting or invoicing |

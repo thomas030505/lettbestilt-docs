@@ -40,6 +40,8 @@ Before you show an order button, check:
 
 `categories` only contains menus that are active right now, and products that are hidden or sold out are left out. A product that is not in the menu cannot be ordered.
 
+**Shared products.** A restaurant can list the same product in several menus, for example the dinner pizzas in the lunch menu. It is one product with one `id`, price and availability. Where it is shared into a category it has `shared: true`, and `homeMenuId` is the menu it lives in. A cart line uses the same `id` wherever the customer picked it, and the product can be ordered while any menu it is listed in is active. Send the `id` of the category the customer picked it from as `categoryId` on the cart line: addon groups that belong to a category follow it, so the lunch menu's addons apply to a pizza picked from the lunch menu. A `categoryId` that is not one of the categories the product can be ordered from now is ignored; then the product's own category comes first.
+
 ### Build the cart
 
 Each cart line is a product, an optional variant, optional add-ons and a quantity. Calculate the price you display like this; the server does the same calculation when the order is created.
@@ -81,7 +83,7 @@ const { hits } = await fetch(
 ```
 </CodeBlocks>
 
-Send `lat`/`lng` as `deliveryLat`/`deliveryLng` and the postal code as `deliveryPostalCode`. Radius-based delivery zones need the coordinates; postal-code zones need the postal code. The zone decides the delivery fee and minimum order; you find the zones in `restaurant.deliveryZones` in the menu.
+Send `lat`/`lng` as `deliveryLat`/`deliveryLng` and the postal code as `deliveryPostalCode`. Radius-based delivery zones need the coordinates; postal-code zones need the postal code. The zone decides the delivery fee and minimum order; you find the zones in `restaurant.deliveryZones` in the menu. When several active zones cover the address, the zones whose minimum order the cart reaches compete, and the customer gets the one with the **lowest delivery fee**; on a tie the one with the lowest minimum order, then the one with the smallest radius. So two zones over the same area, one with a fee and one with fee 0 and a minimum of 500 kr, give free delivery from 500 kr. When the cart reaches no covering zone's minimum, the order is rejected with the lowest minimum among them. Pick the zone the same way when you show the fee before checkout, and pick it again when the cart changes.
 
 ### Show discounts
 
@@ -200,17 +202,30 @@ For your own systems (a back office, a CRM, notifications), subscribe to `ORDER_
 
 ## Handle errors
 
-| Response | What to do |
-|---|---|
-| `409 PRICE_CHANGED` | Fetch the menu again, show the new total and let the customer confirm. Then create the order with a **new** `Idempotency-Key` |
-| `409 PAYMENT_PENDING` | Wait a couple of seconds and retry with the **same** key |
-| `409 PAYMENT_INCOMPLETE` | The payment link was never created. Start over with a new key |
-| `422 VALIDATION_FAILED` / `FULFILLMENT_NOT_ALLOWED` | Show `error.message` (Norwegian). The cart or customer details need to change |
-| `400 PAYMENT_METHOD_DISABLED` / `ONLINE_PAYMENT_UNAVAILABLE` | The payment method is off, or the restaurant has no online payment yet. Offer another method (read `capabilities.payment`) |
-| `400 DELIVERY_DISABLED` / `PICKUP_DISABLED` | The restaurant does not offer that fulfillment. Show `error.message` |
-| `400 BAD_REQUEST` | The restaurant is closed at that time. Show `error.message` |
-| `429 RATE_LIMITED` | Wait for `Retry-After` seconds |
-| `503 PAYMENT_PROVIDER_UNAVAILABLE` | SagaPay did not answer. The order failed (no `ORDER_CREATED`). Offer to try again with a new key, or to pay in cash |
-| Network error or timeout | Retry with the **same** key |
+**Show `error.message` to the customer as it is**: it is in Norwegian and written for the customer. Use `error.code` only for your own logic (what to show next, whether to retry). These are all the codes `POST /orders` returns:
 
-The full list is in [Errors, rate limits and retries](/errors).
+| Status | `error.code` | When | What to do |
+|---|---|---|---|
+| 400 | `MISSING_SLUG` | The `slug` query parameter is missing | Fix the call |
+| 400 | `INVALID_JSON` | The body is not valid JSON | Fix the call |
+| 400 | `INVALID_SUCCESS_URL` / `INVALID_CANCEL_URL` | A return URL is not on a verified domain of the restaurant or lettbestilt.no (a sandbox also accepts localhost and `*.vercel.app`) | Verify the domain, or fix the URL |
+| 400 | `BAD_REQUEST` | The `Idempotency-Key` is not 16–128 URL-safe characters, or the restaurant is closed at that time | Show `error.message` |
+| 400 | `DELIVERY_DISABLED` / `PICKUP_DISABLED` | The restaurant does not offer that fulfillment | Show `error.message`; read `capabilities` first |
+| 400 | `PAYMENT_METHOD_DISABLED` / `ONLINE_PAYMENT_UNAVAILABLE` | The payment method is off, or the restaurant has no online payment yet | Offer another method (read `capabilities.payment`) |
+| 401 | `UNAUTHORIZED` / `KEY_EXPIRED` | Missing, wrong or expired key, and the origin is not trusted | Fix the key; see [Authentication](/authentication) |
+| 403 | `INSUFFICIENT_SCOPE` | The key does not have the scope `orders.create` | Use a key with that access |
+| 404 | `RESTAURANT_NOT_FOUND` | No live restaurant (or sandbox) has this slug | Check the slug |
+| 409 | `IDEMPOTENCY_CONFLICT` | The `Idempotency-Key` was already used by `POST /reservations` | Use a new key |
+| 409 | `PRICE_CHANGED` | You sent `expectedTotal` and the server's total is higher (`details.expectedTotal`, `actualTotal`) | Fetch the menu again, show the new total and let the customer confirm. Then create the order with a **new** `Idempotency-Key` |
+| 409 | `PAYMENT_PENDING` | The order exists and its payment link is still being created | Wait a couple of seconds and retry with the **same** key |
+| 409 | `PAYMENT_INCOMPLETE` | The order exists but never got a payment link | Start over with a new key |
+| 422 | `PRODUCT_UNAVAILABLE` | A product, size or addon in the cart is unknown, turned off, sold out or outside its menu's hours, or its menu or category is turned off (also the products chosen inside a combo) | Show `error.message`, load the menu again and let the customer adjust the cart |
+| 422 | `FULFILLMENT_NOT_ALLOWED` | A product is pickup-only or delivery-only, and the order asked for the other (`details.productId`, `allowedFulfillment`) | Show `error.message` |
+| 422 | `VALIDATION_FAILED` | The body failed validation (`details.issues`), or the cart breaks a rule: a combo's rules (how many in a slot, a size or addon that does not fit), too few or too many addons in a group, an address outside the delivery zones or not precise enough, under the minimum order, or a coupon that does not apply | Show `error.message`. The cart or customer details need to change |
+| 429 | `RATE_LIMITED` | Too many orders from this IP or key | Wait for `Retry-After` seconds |
+| 502 | `PAYMENT_PROVIDER_INVALID` | The payment provider returned an unusable payment link | Try again with a new key, or offer cash |
+| 503 | `PAYMENT_PROVIDER_UNAVAILABLE` | SagaPay did not answer. The order failed (no `ORDER_CREATED`) | Offer to try again with a new key, or to pay in cash |
+| 500 | `INTERNAL_ERROR` | Something failed on our side | Retry with the **same** key; contact LettBestilt with the request ID if it persists |
+| | Network error or timeout | | Retry with the **same** key |
+
+The envelope, the other endpoints' codes and the rate limits are in [Errors, rate limits and retries](/errors).

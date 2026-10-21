@@ -98,6 +98,24 @@ The `201` response contains the new restaurant key in plain text, **once**, in `
 
 `orgNumber` is optional. When you send it, it must be a valid Norwegian organisation number: 9 digits with a correct check digit (mod 11). Spaces are fine. An invalid number gives `422 VALIDATION_FAILED` with an issue in `error.details.issues` whose `path` is `"orgNumber"`, and nothing is created.
 
+### Real restaurants
+
+With a live partner key, `POST /partner/restaurants` creates a real restaurant. Before anything is created, LettBestilt checks, in this order:
+
+| Check | Error |
+|---|---|
+| LettBestilt has approved your partner account | `403 PARTNER_NOT_APPROVED` |
+| Your partner agreement and data processing agreement are signed, and still current | `403 PARTNER_AGREEMENT_REQUIRED` |
+| Your support email, support phone and invoice email are filled in | `403 PARTNER_PROFILE_INCOMPLETE`, with the missing fields in `error.details.missing` (`supportEmail`, `supportPhone`, `invoiceEmail`) |
+
+The restaurants and their customers see your support email and phone, in the customer agreement and on the restaurant's legal page, so they can reach you. LettBestilt sends your invoice to the invoice email. Set them under **Innstillinger → Merkevare** and **Innstillinger → Profil** in the partner portal, or with [`PATCH /partner/brand` and `PATCH /partner/profile`](/partner-setup-api#contact-and-invoice-details).
+
+**New terms mean a new signature.** If LettBestilt changes something in your signed partner agreement, such as the price or your company's name or organisation number, the signature no longer counts. The team member who signs gets an email, and signs again under **Kom i gang** in the partner portal. Until then, the restaurants you have keep working, but a new real restaurant gives `403 PARTNER_AGREEMENT_REQUIRED`.
+
+The body also needs `customerPrice` (`startupFeeOere`, `monthlyFeeOere`, optionally `bindingMonths` and `freeMonths`): what the restaurant pays you, in øre and whole kroner. It goes into the customer agreement the owner signs. You can change it in LettBestilt Partner (the restaurant's Overview); after the owner has signed, a change becomes new terms the owner must sign before they apply, and until then the signed price stays (`customerPrice.pending` in `GET …/{slug}` shows the proposal, `locked` is `true`). Without it: `422 VALIDATION_FAILED` with `path: "customerPrice"`.
+
+Sandboxes (test partner key) need none of this.
+
 ### Retries and replays
 
 The `Idempotency-Key` is remembered per partner for 30 days.
@@ -115,7 +133,7 @@ A slug that is already in use gives `409 SLUG_TAKEN`. That does not count toward
 ## Read, list and delete
 
 - `GET /partner/restaurants` lists your restaurants with slug, name, environment, whether it is live or archived, and when it was created. It is paginated: pass `nextCursor` back as `cursor` until it is `null`. `limit` is 1–100 (default 25).
-- `GET /partner/restaurants/{slug}` returns setup status, SagaPay status (`payment`), owner status (`owner`) and go-live status (`goLive`) (these three are `null` for sandboxes), verified domains, webhooks without secrets, and the restaurant's keys: name, last four characters, environment, scopes and expiry.
+- `GET /partner/restaurants/{slug}` returns setup status, SagaPay status (`payment`), owner status (`owner`) and go-live status (`goLive`) (these three are `null` for sandboxes), `showPoweredBy` (whether the website shows "Drevet av LettBestilt"), verified domains, webhooks without secrets (with `pausedReason`, see [Webhooks](#webhooks)), and the restaurant's keys: name, last four characters, environment, scopes and expiry.
 - `DELETE /partner/restaurants/{slug}`:
   - **A sandbox is deleted for good**, together with its keys. A second `DELETE` with the same key therefore gives `401`. Confirm with the list that the slug is gone. A sandbox with accounting records that must be kept cannot be deleted (`409 RETENTION`).
   - **A real restaurant is never deleted.** It is archived: turned off and closed in `/api/v1`, while orders and accounting records are kept. Its webhooks are paused. You can still read it, revoke its keys and delete its webhooks, but not rotate keys or add webhooks (`409 RESTAURANT_ARCHIVED`). **Only LettBestilt can restore an archived restaurant.**
@@ -133,9 +151,10 @@ const { data } = await res.json(); // { result: "deleted", slug: "pizzaroma-test
 
 ## Keys and webhooks
 
-- **Rotate** a restaurant key with `POST …/keys/{keyId}/rotate`. The new key gets the same scopes, and the old one keeps working for `graceHours` (default 24). See [Rotating keys without downtime](/rotating-keys).
+- **Rotate** a restaurant key with `POST …/keys/{keyId}/rotate`. The new key gets the same scopes and the same expiry date, and the old one keeps working for `graceHours` (default 24). See [Rotating keys without downtime](/rotating-keys).
 - **Revoke** with `DELETE …/keys/{keyId}`, now (`graceHours: 0`, the default) or after up to 24 hours. You cannot revoke the key you are calling with immediately (`409 KEY_IN_USE`); rotate it instead.
 - **Webhooks**: `GET …/webhooks` lists them, `POST …/webhooks` creates one (the signing secret is in the response, once), `DELETE …/webhooks/{webhookId}` removes one. A restaurant can have up to 10. Pausing, resending and test events are in the partner portal; see [Webhooks](/webhooks).
+- **Webhooks on a real restaurant carry customer data**, so a new webhook is only active when its host is a domain of the restaurant that a person verified (or a subdomain of one); your website does not count. Otherwise it is created paused (`paused: true` in the response), with `pausedReason` saying why. The partner API cannot turn a webhook on, and LettBestilt MCP's `set_webhook_active` gives `403 WEBHOOK_HOST_NOT_TRUSTED`: a person turns it on on the restaurant's **Webhooks** tab in the partner portal. The lists show `pausedReason` for such a webhook (otherwise `null`). Sandboxes are not affected.
 
 Key ids are in `apiKeys` in `GET /partner/restaurants/{slug}`.
 
@@ -177,7 +196,19 @@ Drafts are deleted after 7 days. A second commit, also after a lost response, gi
 
 A real restaurant needs LettBestilt's approval before it goes live for the first time. The owner signs the agreements. LettBestilt approves the restaurant before the owner sets it live.
 
-1. When the steps under **Get started** (*Kom i gang*) are done, `goLive.readyToRequest` in `GET /partner/restaurants/{slug}` is `true`. Before that, a request gives `422 GO_LIVE_NOT_READY` with the missing steps in `details.missing`.
+1. When the steps under **Get started** (*Kom i gang*) are done, `goLive.readyToRequest` in `GET /partner/restaurants/{slug}` is `true`. Before that, a request gives `422 GO_LIVE_NOT_READY` with the missing steps in `details.missing`. `goLive.missingSteps` lists them as keys, and `goLive.missingStepDetails` gives each one a Norwegian name and says what is missing and who does it:
+
+   | Key | Name | What is missing |
+   |---|---|---|
+   | `agreement` | Kundeavtale | The owner signs the customer agreement in Kom i gang |
+   | `dpa` | Databehandleravtale | The owner signs the data processing agreement in Kom i gang |
+   | `invoice` | Fakturaopplysninger | Organisation number, legal name and invoice method (EHF, or e-mail with an invoice address) |
+   | `hours` | Åpningstider | At least one open day, confirmed in Kom i gang |
+   | `fulfillment` | Henting og levering | Pickup or delivery on (delivery needs an active zone), confirmed in Kom i gang |
+   | `prep-times` | Tilberedningstid | The preparation times, confirmed in Kom i gang |
+   | `payment` | Betaling | The owner confirms the payment methods in Kom i gang, also when only payment on pickup is on |
+
+   Until you send the request, `goLive.currentChecks` has LettBestilt's checklist as it is now, with the texts (`level`, `title`, `detail` per check), so you can fix errors first. The Brønnøysund Register Centre and the website are only checked when you send the request (`probed: false`). `lastChecks` is the checklist from the latest request.
 2. `POST …/go-live-review` sends the request. LettBestilt's checklist runs first (menu, opening hours, payment, agreements, company details, website, domain, API key, owner, allergens and more). Errors give `422 GO_LIVE_CHECKS_FAILED` with every check in `details.checks`, and nothing is sent. Warnings do not stop the request.
 3. LettBestilt reviews the restaurant. `goLive.state` becomes `approved` or `rejected`, with LettBestilt's comment in `goLive.comment` when it is rejected.
 4. The owner sets the restaurant live. An approval never does that by itself, and it is valid for 30 days.

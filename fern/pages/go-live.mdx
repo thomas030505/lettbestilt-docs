@@ -13,7 +13,7 @@ With a live key, every order you create is a real order for the restaurant. Plan
 
 ## Access
 
-- [ ] **The restaurant is live in LettBestilt.** The owner signs the agreements. LettBestilt approves the restaurant before the owner sets it live; you ask for the approval in LettBestilt Partner (the partner portal). Until the restaurant is live, every endpoint that takes a slug responds `404 RESTAURANT_NOT_FOUND`, except `GET /site-gate`. See [From sandbox to live](/sandbox-to-live).
+- [ ] **The restaurant is live in LettBestilt.** The owner signs the agreements. LettBestilt approves the restaurant before the owner sets it live; you ask for the approval in LettBestilt Partner (the partner portal). `goLive.missingStepDetails` in `GET /partner/restaurants/{slug}` names each step that is not done and what is missing, and `goLive.currentChecks` shows LettBestilt's checklist as it is now, so you can fix errors before you ask. See [Go-live approval](/partner-api#go-live-approval). Until the restaurant is live, every endpoint that takes a slug responds `404 RESTAURANT_NOT_FOUND`, except `GET /site-gate`. See [From sandbox to live](/sandbox-to-live).
 - [ ] **The site uses the live key (`lbs_live_…`) and the real slug**, not the sandbox's test key and slug.
 - [ ] **The API key is on your server only**, in an environment variable. It is not in browser code, a mobile app or a repository. The same goes for your partner key.
 - [ ] **The key has the scopes the site needs.** A key limited to some scopes gives `403 INSUFFICIENT_SCOPE` on anything else. If it has an expiry date, a rotation is planned before it.
@@ -42,7 +42,8 @@ With a live key, every order you create is a real order for the restaurant. Plan
 
 ## Errors and limits
 
-- [ ] **You branch on `error.code`**, and show `error.message` to the customer where it makes sense.
+- [ ] **You show `error.message` to the customer as it is** (it is Norwegian and written for the customer) and use `error.code` for your own logic. See [Handle errors](/build-an-ordering-flow#handle-errors).
+- [ ] **"Drevet av LettBestilt" follows `restaurant.showPoweredBy`.** Show it in the footer only when `showPoweredBy` in `GET /menu` is `true`.
 - [ ] **`429` waits for `Retry-After`**, and network errors retry with the same `Idempotency-Key`.
 - [ ] **A `503` on order creation** lets the customer try again or choose cash.
 - [ ] **The menu is cached on your side** and fetched with `If-None-Match`, so you do not refetch it for every page view.
