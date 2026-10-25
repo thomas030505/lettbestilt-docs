@@ -430,7 +430,7 @@ The restaurant's owner, the partner portal and your code can change the same thi
 
 ## The demo restaurant
 
-LettBestilt's demo restaurant can be read, but every write gives `409 DEMO_RESTAURANT`.
+LettBestilt's demo restaurant can be read, but every write gives `409 DEMO_RESTAURANT`. It has `demo: true` in `GET /api/v1/partner/restaurants` and `GET /api/v1/partner/restaurants/{slug}` (and in `list_restaurants` and `get_restaurant_setup` in LettBestilt MCP), while `environment` is `LIVE` and `live` is `true`. It never sends webhooks, so `POST /api/v1/partner/restaurants/{slug}/webhooks` gives `409 DEMO_RESTAURANT` too (LettBestilt MCP's `create_webhook` gives `409 DEMO`).
 
 ## Errors
 

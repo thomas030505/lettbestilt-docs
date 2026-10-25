@@ -131,8 +131,8 @@ Tools that only read are marked `readOnlyHint`. `publish_menu`, `set_menu_schedu
 | Tool | What it does | Needs restaurant key |
 |---|---|---|
 | `help` | The short welcome card, every tool (only when asked for), the setup guide, or help for one area or tool. See [Getting started and help](#getting-started-and-help) | |
-| `list_restaurants` | Lists your restaurants in the partner key's environment, with slug and status | |
-| `get_restaurant_setup` | Setup steps, owner and go-live status, `showPoweredBy`, verified domains, webhooks (with `pausedReason`) and restaurant keys (never secrets), like `GET /api/v1/partner/restaurants/{slug}` | ✓ |
+| `list_restaurants` | Lists your restaurants in the partner key's environment, with slug and status. `demo: true` marks LettBestilt's demo restaurant: it looks live, but never sends webhooks, and its settings, hours, delivery zones and menu cannot be changed | |
+| `get_restaurant_setup` | `demo`, setup steps, owner and go-live status, `showPoweredBy`, verified domains, webhooks (with `pausedReason`) and restaurant keys (never secrets), like `GET /api/v1/partner/restaurants/{slug}` | ✓ |
 | `get_menu` | Without `menuId`: the menu customers see now, through `GET /api/v1/menu` (a sandbox, or a real restaurant that is live), as a summary or the full response with `view: "full"`. With `menuId`: that one menu through `GET …/{slug}/menus/{menuId}`, also when it is off, with every id; add `categoryId` for one category. See [The menu](#the-menu) | ✓ |
 | `check_integration` | The same check as **Sjekk integrasjonen** in the portal | ✓ |
 | `get_api_log` | The latest API calls: route, status, error code, request ID and an explanation | ✓ |
@@ -154,7 +154,7 @@ Tools that only read are marked `readOnlyHint`. `publish_menu`, `set_menu_schedu
 | Tool | What it does |
 |---|---|
 | `list_webhooks` | The restaurant's webhooks, never the secret. `pausedReason` says why a webhook on a real restaurant is paused (its host is not trusted, so only a person can resume it), otherwise `null` |
-| `create_webhook` | Registers a public `https://` URL for the chosen events. The signing secret is in the response **once**; store it as an environment variable on the receiving server. On a real restaurant the webhook is only active when the URL's host is a domain of the restaurant that a person verified (or a subdomain of one); otherwise it is created paused (`paused: true`). A domain verified with `verify_domain` does not count, and neither does your website |
+| `create_webhook` | Registers a public `https://` URL for the chosen events. The signing secret is in the response **once**; store it as an environment variable on the receiving server. On a real restaurant the webhook is only active when the URL's host is a domain of the restaurant that a person verified (or a subdomain of one); otherwise it is created paused (`paused: true`). A domain verified with `verify_domain` does not count, and neither does your website. On LettBestilt's demo restaurant (`demo: true`) it gives `409 DEMO`, like `send_test_webhook`: the demo restaurant never sends webhooks |
 | `set_webhook_active` | Pauses or resumes a webhook (pass `expectedActive` to fail with `CHANGED` instead of overwriting someone else's change). It cannot resume a webhook on a real restaurant whose host is not trusted (`WEBHOOK_HOST_NOT_TRUSTED`); a person does that in the partner portal |
 | `send_test_webhook` | Sends a signed `PING` (no customer data) to a webhook that is already registered |
 | `list_domains` | The restaurant's domains, verified or not, with the TXT record a domain still waits for |
