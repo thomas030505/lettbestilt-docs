@@ -25,7 +25,7 @@ The server uses the same two keys as the [LettBestilt Partner API](/partner-api)
 | Header | Key | Needed for |
 |---|---|---|
 | `Authorization: Bearer …` | Your **partner key** (`lbp_test_…`, or `lbp_live_…` once LettBestilt Partner is open) | Every call |
-| `X-LettBestilt-Restaurant-Key` | The restaurant's **restaurant key** (`lbs_test_…` or `lbs_live_…`) with access **Alt** (all) | Tools about one restaurant |
+| `X-LettBestilt-Restaurant-Key` | One or more **restaurant keys** (`lbs_test_…` or `lbs_live_…`) with access **Alt** (all), separated by commas, at most 25 | Tools about one restaurant |
 
 The partner key decides the environment. A test key reaches your sandboxes; a live key reaches your real restaurants. The two can never be mixed: a test partner key with a live restaurant key (or the other way round) is rejected.
 
@@ -33,7 +33,7 @@ The partner key decides the environment. A test key reaches your sandboxes; a li
 Live partner keys work once LettBestilt Partner is open. Until then, a live partner key gets `403 PARTNER_LIVE_KEYS_DISABLED` and LettBestilt MCP only works with sandboxes. When it is open, a live key also requires that LettBestilt has approved your partner account (`403 PARTNER_NOT_APPROVED`) and that you have signed the partner agreements (`403 PARTNER_AGREEMENT_REQUIRED`).
 </Note>
 
-The partner key alone is enough for `help`, `list_restaurants`, `get_tracking_setup`, `search_docs`, `create_sandbox`, `get_partner`, `get_partner_brand`, `get_partner_profile`, `get_sender_domain`, `list_partner_news`, `set_partner_brand`, `update_partner_profile`, `set_sender_domain`, `check_sender_domain`, `create_partner_news`, `update_partner_news` and `publish_partner_news`. Every other tool works on one restaurant, and the restaurant key decides which: one MCP connection reaches the one restaurant whose key is in `X-LettBestilt-Restaurant-Key`. Leave `slug` out and the tool uses that restaurant. `list_restaurants` shows all your restaurants in the environment, but a slug from that list only works when the restaurant key belongs to that restaurant; to work on another restaurant, connect again with its restaurant key (or change the variable) and restart the AI tool.
+The partner key alone is enough for `help`, `list_restaurants`, `get_tracking_setup`, `search_docs`, `create_sandbox`, `get_partner`, `get_partner_brand`, `get_partner_profile`, `get_sender_domain`, `list_partner_news`, `set_partner_brand`, `update_partner_profile`, `set_sender_domain`, `check_sender_domain`, `create_partner_news`, `update_partner_news`, `publish_partner_news` and `create_upload_link` (for your own logos; images for a restaurant and menu files need its restaurant key). Every other tool works on one restaurant, and the restaurant keys decide which: one MCP connection reaches the restaurants whose keys are in `X-LettBestilt-Restaurant-Key`, and only those. With one key, leave `slug` out and the tool uses that restaurant. With several keys (for example your sandbox and the real restaurants you are setting up), the tool needs `slug`, and it uses the key that belongs to that restaurant; without `slug` it answers `400 RESTAURANT_SLUG_REQUIRED` with the slugs it has working keys for in `details.slugs`. Every key is checked on its own, exactly as with one key: same environment as the partner key, your restaurant, access **Alt**, not revoked or expired. The same key twice, or two keys for the same restaurant, gives `400 DUPLICATE_RESTAURANT_KEY`, and more than 25 gives `400 TOO_MANY_RESTAURANT_KEYS`. `list_restaurants` shows all your restaurants in the environment, but a slug from that list only works when the connection has that restaurant's key; to add one, connect again with all the keys (or change the variable) and restart the AI tool.
 
 The website's limited restaurant key (for example menu and orders only) does not work here. Create a separate key with access **Alt** on the restaurant's **API** tab for the AI tool. If you use environment variables, keep it in its own variable, `LETTBESTILT_MCP_RESTAURANT_KEY`. The website's own key usually lives in `LETTBESTILT_API_KEY`; using the same name for both either gives `INSUFFICIENT_SCOPE` or puts the AI tool's key with access **Alt** in the website's production environment.
 
@@ -43,15 +43,17 @@ With only the partner key, LettBestilt MCP reads your partner account and the re
 
 ## Connect your AI tool
 
-The easiest way is **Innstillinger → MCP** in the partner portal. Paste your partner key, and a restaurant key with access **Alt** if the tool should work on one restaurant, then choose **Claude Code**, **Codex** or **Annet verktøy** (another tool). The setup is copied with your keys in it. The portal builds it in your browser and never sends or stores the keys. Paste the command in Terminal (macOS or Linux) and press Enter, then write "hjelp" in the AI tool to check that it works. Running the command again replaces the previous setup, so it is safe to run it again with a new key.
+The easiest way is **Innstillinger → MCP** in the partner portal. Paste your partner key, and the restaurant keys with access **Alt** for the restaurants the tool should work on (one per line), then choose **Claude Code**, **Codex** or **Annet verktøy** (another tool). The setup is copied with your keys in it. The portal builds it in your browser and never sends or stores the keys. Paste the command in Terminal (macOS or Linux) and press Enter, then write "hjelp" in the AI tool to check that it works. Running the command again replaces the previous setup, so it is safe to run it again with a new key.
 
 Keys are only inserted when they have the exact format LettBestilt creates (`lbp_test_…`, `lbs_test_…` and the `live` variants: letters, digits, `_` and `-`), so a pasted command can never contain anything else.
 
 ### Claude Code
 
 ```bash
-claude mcp remove --scope user lettbestilt >/dev/null 2>&1; claude mcp add --transport http --scope user lettbestilt https://www.lettbestilt.no/api/mcp --header "Authorization: Bearer lbp_test_..." --header "X-LettBestilt-Restaurant-Key: lbs_test_..."
+claude mcp remove --scope user lettbestilt >/dev/null 2>&1; claude mcp add --transport http --scope user lettbestilt https://www.lettbestilt.no/api/mcp --header "Authorization: Bearer lbp_test_..." --header "X-LettBestilt-Restaurant-Key: lbs_test_...,lbs_test_..."
 ```
+
+With several restaurants, the keys go in the same header, separated by commas without spaces.
 
 `--scope user` stores the server and the keys in your own Claude Code configuration (`~/.claude.json`), not in the project, so they never end up in git. `claude mcp add` refuses a name that already exists, so the command removes the old `lettbestilt` first (and stays quiet when there is none). Leave out the second `--header` to use only the partner tools. Run `/mcp` in Claude Code to check that `lettbestilt` is connected. A `lettbestilt` server in the project's `.mcp.json` takes precedence over the one in your user configuration, so remove it there if you set it up that way before. On Windows, run only the part from `claude mcp add` in PowerShell. A server added earlier without `--scope` (the default `local` scope) also takes precedence: run `claude mcp list` in the project folder and remove it with `claude mcp remove lettbestilt -s local`.
 
@@ -79,7 +81,7 @@ If you would rather keep the keys out of every file, put them in your shell:
 
 ```bash
 export LETTBESTILT_PARTNER_KEY="lbp_test_..."          # lbp_live_... for a real restaurant, once LettBestilt Partner is open
-export LETTBESTILT_MCP_RESTAURANT_KEY="lbs_test_..."   # the restaurant key with access Alt, only for the AI tool
+export LETTBESTILT_MCP_RESTAURANT_KEY="lbs_test_..."   # restaurant keys with access Alt, only for the AI tool; several separated by commas
 ```
 
 For Claude Code, add `.mcp.json` to the root of your project. It only references the variables, so it is safe to commit:
@@ -118,10 +120,10 @@ When you greet the AI tool, ask what it can do, or write "hjelp" or "help", it c
 
 | You write | You get |
 | --- | --- |
-| "Hjelp med oppsett" or "Help with setup" | The setup guide: a numbered list of everything that needs to be set up (the restaurant, its details and company, pickup and delivery, opening hours, delivery zones, the menu, colours and texts, the website's domain, the order webhook, campaign tracking, a test and go-live), and what a person does outside the AI tool (keys, DNS, the owner). The AI tool then checks what is already in place and goes through the rest one step at a time, asking only for what each step needs |
+| "Hjelp med oppsett" or "Help with setup" | The setup guide: a numbered list of everything that needs to be set up, starting with your own partner account (contact and invoice details, then your brand and sender domain), then the sandbox and the real restaurant (its details and company, pickup and delivery, opening hours, delivery zones, the menu, images, colours and texts, the website's domain, the order webhook, campaign tracking, a test, the owner and payment, and go-live), and what a person does outside the AI tool, in order (agreements, keys, creating the real restaurant with its customer price, DNS, the owner invitation, the owner's SagaPay with BankID). The AI tool then checks what is already in place and goes through the rest one step at a time, asking only for what each step needs |
 | "hjelp" or "help" | The short welcome card: the six groups with one line each, and suggestions |
 | "hjelp verktøy" or "help tools" | Every tool, one line each, by group. Only when you ask for the full list |
-| "hjelp meny" or "help menu" | One area: its tools and a short guide. The areas are `meny`/`menu`, `tider`/`hours`, `levering`/`delivery`, `innstillinger`/`settings`, `oppkobling`/`connect`, `sandkasse`/`sandbox`, `go-live` and `partner` (your own account) |
+| "hjelp meny" or "help menu" | One area: its tools and a short guide. The areas are `meny`/`menu`, `tider`/`hours`, `levering`/`delivery`, `innstillinger`/`settings`, `oppkobling`/`connect`, `sandkasse`/`sandbox`, `go-live`, `partner` (your own account) and `bilder`/`images` (images and menu files) |
 | "hjelp publish_menu" | One tool: what it does, whether it changes something and needs the restaurant key, every field with its type and format (from the tool's own schema), an example call and what it never does |
 
 The card is in Norwegian by default. The AI tool passes `language: "en"` when you write English. `help` only needs the partner key, never calls anything outside the server and changes nothing.
@@ -132,18 +134,19 @@ The partner portal connects the tool on **Innstillinger → MCP**. Examples, tro
 
 ## Tools
 
-The 54 tools come in six classes. The class is fixed in the server and enforced on every call.
+The 57 tools come in seven classes. The class is fixed in the server and enforced on every call.
 
 | Class | Tools | Restaurant | Changes something | Where | Extra limit |
 |---|---|---|---|---|---|
-| Read | 18 | Some | No | Sandboxes and real restaurants | |
+| Read | 19 | Some | No | Sandboxes and real restaurants | |
 | Setup | 10 | Yes | Some | Sandboxes and real restaurants | 60 per hour per partner key for the tools that change something |
-| Configuration | 16 | Yes | Yes | Sandboxes and real restaurants | 300 per hour per partner key |
+| Configuration | 17 | Yes | Yes | Sandboxes and real restaurants | 300 per hour per partner key |
 | Partner | 1 | No | Yes | Test partner key only | The partner API's limits for creating restaurants |
 | Partner account | 7 | No | Yes | Test and live partner keys | 60 per hour per partner key |
+| Upload | 1 | Some | Yes | Sandboxes, real restaurants and your own logos | 300 links per hour per partner key, 300 uploads per hour per partner |
 | Sandbox only | 2 | Yes | Yes | Sandboxes only | 30 test orders per hour per partner key |
 
-Tools that only read are marked `readOnlyHint`. `publish_menu`, `set_menu_schedule`, `update_category`, `update_product` and `set_addon_group` are also marked `destructiveHint`: they delete nothing, but they can take something customers see out of service or change prices and the sets of sizes and addons customers order, so an AI tool that respects the hint asks you before it runs them. `set_partner_brand`, `set_sender_domain` and `publish_partner_news` are marked `destructiveHint` too, because your restaurant owners see the result.
+Tools that only read are marked `readOnlyHint`. `publish_menu`, `set_menu_schedule`, `update_category`, `update_product`, `set_addon_group` and `commit_menu_import` are also marked `destructiveHint`: they delete nothing, but they can take something customers see out of service or change prices and the sets of sizes and addons customers order, so an AI tool that respects the hint asks you before it runs them. `set_partner_brand`, `set_sender_domain` and `publish_partner_news` are marked `destructiveHint` too, because your restaurant owners see the result.
 
 **Read** (sandboxes and real restaurants):
 
@@ -162,6 +165,7 @@ Tools that only read are marked `readOnlyHint`. `publish_menu`, `set_menu_schedu
 | `list_delivery_zones` | The delivery zones, active first, like `GET …/{slug}/delivery-zones` | ✓ |
 | `get_settings` | Profile, brand, ordering options, texts and the legal fields, with `version` and `legal.locked`, like `GET …/{slug}/settings` | ✓ |
 | `list_menus` | Every menu, in service or not: id, name, `isActive`, `isDefault`, `startsOn`/`endsOn`, schedule, number of categories and active products, and `isLiveNow` (shown to customers right now), like `GET …/{slug}/menus` | ✓ |
+| `get_menu_import` | A menu import made from a file uploaded with `create_upload_link` (`menu_import`), like `GET …/{slug}/menu-imports/{importId}`: a summary with the categories, counts, warnings (`CHECK_AGAINST_MENU` for a photo or scanned PDF) and the uncertain products with their prices; `view: "full"` adds the whole proposal. The AI tool shows you the uncertain prices before it imports | ✓ |
 | `get_partner` | Your partner account, like `GET /api/v1/partner/me`: name, kind, approval, white label, the key's environment, the number of restaurants in it, and the brand, profile and sender domain | |
 | `get_partner_brand` | Your brand, like `GET /api/v1/partner/brand`: logo and light logo, the dashboard's colours and font, support e-mail and phone, website, `showPoweredBy`, `whiteLabelEnabled` and `updatedAt` | |
 | `get_partner_profile` | Your contact and invoice details, like `GET /api/v1/partner/profile`, with `orgNumber` (read only) and `updatedAt` | |
@@ -203,6 +207,7 @@ Tools that only read are marked `readOnlyHint`. `publish_menu`, `set_menu_schedu
 | `share_product` | Shows a product the restaurant already has also in another category, often in another menu (`POST …/categories/{categoryId}/placements`), instead of copying it. Price, sizes, allergens, addons and sold out live on the one product, so a change applies in every menu it is in. Only to a category in another menu than the one the product lives in (`422` otherwise), and at most 2000 shared products per restaurant (`PRODUCT_LIMIT`). Sharing it again changes nothing (`created: false`) |
 | `unshare_product` | Takes a shared product out of one category (`DELETE …/categories/{categoryId}/placements/{productId}`). The product is never deleted and stays where it lives (`sharedFrom` in `get_menu`) |
 | `set_addon_group` | Without `groupId`: creates an addon group (`POST …/addon-groups`). With `groupId`: changes it (`PATCH …/addon-groups/{groupId}`), and then `expectedVersion` from `get_menu` is required; addons are sent as the whole set with their `id`, and a set that leaves out an existing addon gives `VALIDATION_FAILED`. `minSelect` can be at most the number of available addons, and `isRequired` must agree with `minSelect` (true exactly when it is above 0); a required `GLOBAL` group comes back with a warning, since every product then needs a choice |
+| `commit_menu_import` | Creates a **new** menu from a menu import (`POST …/menu-imports/{importId}/commit`), off and not the default, like `create_menu`; nothing existing is touched. A product without a price fails the whole commit, and a second commit gives `409 MENU_IMPORT_CLOSED` with `details.menuId`. Then check it with `get_menu`, fix it with `update_product` and publish it with `publish_menu` |
 
 These tools call the [partner API endpoints for setting up a restaurant](/partner-setup-api) in the same process, with both keys. They validate, rate limit and fail exactly like the API: a format error comes back as `VALIDATION_FAILED` with the field in `details.issues`, and `CHANGED`, `LEGAL_LOCKED`, `DEMO_RESTAURANT`, `MENU_NOT_FOUND`, `CATEGORY_LIMIT` and the other codes come back unchanged. `RATE_LIMITED` carries `details.retryAfterSeconds`.
 
@@ -231,6 +236,12 @@ Your brand, profile and sender domain belong to you as a partner, not to an envi
 | `publish_partner_news` | `publish`, `schedule` (with `scheduledAt`) or `unschedule` a news item (`POST …/news/{newsId}/publish`). With a test key it publishes to sandboxes. With a live key, `publish` and `schedule` give `403 HUMAN_REQUIRED`: the AI tool writes drafts for real restaurants, and a person publishes them in LettBestilt Partner or with the partner API. There is no `archive` |
 
 These tools call [the partner API endpoints for your own account](/partner-setup-api#your-own-partner-account) in the same process, with only the partner key, so they validate, rate limit and fail like the API: `KEY_ROLE_FORBIDDEN` (the key was not created by a team member with the role Partner or Administrator), `WHITE_LABEL_REQUIRED`, `CHANGED`, `NOT_DRAFT`, `NO_RECIPIENTS`, `HUMAN_REQUIRED` and the other codes come back unchanged. The AI tool writes the support details, the logo, the sender domain and the text of a news item only from what you gave it, with no numbers, prices or promises you did not give, and shows you a news draft before it publishes.
+
+**Upload** (a one-time link for an image or a menu file; see [Images and menu files](#images-and-menu-files)):
+
+| Tool | What it does |
+|---|---|
+| `create_upload_link` | Gives a link that works once, for 15 minutes, and a ready `curl` command the AI tool runs on your machine with the file you gave it. `purpose`: `product_image`, `restaurant_logo`, `restaurant_cover` or `menu_import` (with the restaurant key), or `partner_logo` and `partner_logo_light` (only the partner key, created by a team member with the Partner or Administrator role) |
 
 **Sandbox only** (anything that creates orders or test data):
 
@@ -308,7 +319,21 @@ Only `create_menu` waits for `publish_menu`. `add_products`, `update_product`, `
 - **Sizes and addons keep their `id`.** `update_product` replaces the whole set of `variants`, and `set_addon_group` with `groupId` replaces the whole set of `addons` (and `productIds`). Read the menu with `get_menu` first and send every existing size or addon with its `id` (and `isDefault` and `addonTierKey` for sizes). One without `id` is created new. Leaving out an existing one gives `VALIDATION_FAILED` (path `variants` or `addons`): LettBestilt MCP never removes a size or an addon, a person does that in the dashboard or through the partner API. A new id breaks orders from baskets that still hold the old one, for up to six minutes. `add_products` and a new addon group take no `id` (`VALIDATION_FAILED`).
 - **Nothing is deleted.** Hide a product for good with `isActive: false`, mark it sold out for now with `isAvailable: false`, and hide a category and its products with `update_category { isActive: false }`.
 - **`CHANGED`** means someone changed the same category, product or group in between. Every product and addon group in `get_menu` has a `version`, and `update_product` and `set_addon_group` with `groupId` require it as `expectedVersion`, so a change the owner made after the AI tool read the menu is never overwritten. Read it again with `get_menu` and send the change once more.
-- Images cannot be set from LettBestilt MCP; set them in the restaurant dashboard.
+- Product images are set with `update_product { imageUrl }`, using the `url` from `create_upload_link` (`product_image`). An image is never removed through MCP.
+
+## Images and menu files
+
+A file never goes into a tool argument. The AI tool calls `create_upload_link` with the purpose, and runs the command it returns with the file you gave it:
+
+```bash
+curl -sS -F "file=@<path>" https://www.lettbestilt.no/api/v1/uploads/<token>
+```
+
+- **Images** (`product_image`, `restaurant_logo`, `restaurant_cover`): PNG, JPEG or WebP, at most 4 MB, read from the file's bytes. The response has `data.url`; the AI tool passes it to `update_product` (`imageUrl`) or `update_settings` (`logoUrl`, `coverImageUrl`).
+- **Your logos** (`partner_logo`, `partner_logo_light`): at most 2 MB, the same rules as `POST /api/v1/partner/brand/logo`. The response has `data.url`; the AI tool passes it to `set_partner_brand` (`logoUrl`, `logoLightUrl`).
+- **Menu files** (`menu_import`): a PDF (at most 4 MB and 20 pages) or a photo. LettBestilt reads it on the server with a language model and checks every price against the text of a PDF, like [menu import](/partner-api) in the partner API. The response has `data.importId` and a summary. `get_menu_import` shows the categories and the uncertain prices, which the AI tool shows you, and `commit_menu_import` creates a new menu that is off. Reading can take a couple of minutes.
+
+The link works once: the first successful upload uses it, and an upload that fails (a wrong file type, too large, or the file could not be stored) does not. It only works for the purpose, partner and restaurant it was made for, and it checks again that the key, the partner and the restaurant are still valid. A browser cannot use it (a request with an `Origin` header gives `403`). The AI tool only uploads files you gave it, and LettBestilt never downloads a file from a link. Errors: `UPLOAD_LINK_INVALID` (404 for a link that is not ours, 403 when the key, partner or restaurant is no longer valid), `410 UPLOAD_LINK_EXPIRED`, `409 UPLOAD_LINK_USED`, `411 LENGTH_REQUIRED`, `413 FILE_TOO_LARGE` or `PDF_TOO_LARGE`, `422 FILE_UNSUPPORTED` or `IMAGE_HEIC`.
 
 ## Set up a restaurant from scratch
 
@@ -361,12 +386,13 @@ Send the same `idempotencyKey` again to retry without creating a second order; t
 - Setup tools that change something (webhooks, domains, test events, go-live requests): 60 per hour per partner key.
 - Configuration tools that change something (opening hours, delivery zones, settings and the menu): 300 per hour per partner key. The two hourly limits are separate, so a large menu never blocks webhooks and domains, and the other way round.
 - Partner account tools that change something: 60 per hour per partner key, separate from the other two, plus the partner API's own limits, shared with the portal: 10 sender domain changes per hour and 10 checks per 10 minutes, 10 logo uploads per hour (both logos together), 60 news changes per 10 minutes and 10 news sends per day per partner.
+- `create_upload_link`: 300 links per hour per partner key; the uploads themselves 300 per hour per partner. A menu file also counts against menu import's limits (10 per hour per restaurant, 60 per partner, 20 readings with the language model per day per restaurant).
 - `create_sandbox`: the partner API's limits for creating restaurants (10 per hour per partner key and 20 per hour per partner) and at most 20 sandboxes.
 - Test orders and `verify_attribution`: 30 per hour per partner key.
 - `create_menu`: 10 new menus per hour per restaurant, shared with menu import.
 - `send_test_webhook`: 5 per minute per webhook; `verify_domain`: 30 per 10 minutes per restaurant; `check_integration`: 10 per minute per restaurant; `request_go_live`: 15 per hour per restaurant and 30 per partner. All shared with the portal.
 - The delegated API calls also have the API's own limits.
-- At most 1 MB per request and 10 messages in a JSON-RPC batch. A logo or light logo sent with `set_partner_brand` is at most 512 KB decoded. A single tool call that is too large comes back as the tool error `PAYLOAD_TOO_LARGE` (status 413); a batch that is too large, or a body that cannot be read, gets HTTP 413. Send the categories one at a time, or the products in smaller groups.
+- At most 1 MB per request and 10 messages in a JSON-RPC batch. A logo or light logo sent as base64 with `set_partner_brand` is at most 512 KB decoded; use `create_upload_link` for any real logo file. A single tool call that is too large comes back as the tool error `PAYLOAD_TOO_LARGE` (status 413); a batch that is too large, or a body that cannot be read, gets HTTP 413. Send the categories one at a time, or the products in smaller groups.
 
 `RATE_LIMITED` from the hourly limits and from the delegated API calls carries `details.retryAfterSeconds`: wait that many seconds before you try again.
 
@@ -395,10 +421,25 @@ Every change (sandboxes, opening hours, delivery zones, settings, webhooks, doma
 
 ## Troubleshooting
 
-- **The server shows "needs authentication" or "failed" in Claude Code (`/mcp`), or the LettBestilt tools do not work in Codex**: the partner key is empty, wrong or revoked. The server answers `401`, and the AI tool reads that as "sign in with OAuth", so you never see our error text and there is no sign-in page to find. Paste a key that works on the **MCP** tab and run the command again, or, with environment variables, check that `LETTBESTILT_PARTNER_KEY` is set in the shell the tool starts from and starts with `lbp_`. Then restart the tool.
-- **`401` with "Send partnernøkkelen (lbp_) i Authorization"** (with `curl` or your own client): the partner key did not reach the server.
-- **`RESTAURANT_NOT_FOUND` for a restaurant `list_restaurants` just showed**: the restaurant key decides which restaurant the tools reach. One connection reaches only the restaurant its restaurant key belongs to. Leave out `slug` to use the key's restaurant, or connect again with a key for the restaurant you want (or set `LETTBESTILT_MCP_RESTAURANT_KEY` to it) and restart the AI tool.
-- **`403 PARTNER_LIVE_KEYS_DISABLED`**: you used a live partner key before LettBestilt Partner is open. Use a test key against a sandbox.
+- **The server shows "failed" in Claude Code (`/mcp`), or the LettBestilt tools do not work in Codex**: run `claude mcp get lettbestilt`. Under "Issue" Claude Code shows the server's answer, and the message in it says what to do. Errors before the MCP protocol are HTTP `401`/`403`/`429` with a JSON-RPC error object without an id: `{"jsonrpc":"2.0","error":{"code":-32000,"message":"…","data":{"code":"KEY_EXPIRED","status":401,"requestId":"…"}},"id":null}`. LettBestilt's own code is in `error.data.code`, the Norwegian text for the person in `error.message`:
+  - `401 UNAUTHORIZED`: the partner key is missing, has the wrong format or does not exist. Create one under **Innstillinger → Partnernøkkel (API)** and connect again on the **MCP** tab. With environment variables, check that `LETTBESTILT_PARTNER_KEY` is set in the shell the tool starts from and starts with `lbp_`.
+  - `401 KEY_EXPIRED` or `401 KEY_REVOKED`: the partner key expired or was revoked. Create a new one and connect again.
+  - `403 PARTNER_NOT_APPROVED`: your partner account is waiting for LettBestilt's approval. You get an e-mail; the status is under **Kom i gang**.
+  - `403 PARTNER_LIVE_KEYS_DISABLED`: you used a live partner key before LettBestilt Partner is open. Use a test key against a sandbox.
+  - `403 PARTNER_AGREEMENT_REQUIRED`: a live key needs the signed partner agreement and data processing agreement (**Kom i gang**). Test keys work in the meantime.
+  - `403 PARTNER_SUSPENDED` or `403 PARTNER_ARCHIVED`: contact LettBestilt at support@lettbestilt.no.
+
+  Only a key whose secret is right gets the specific reason; anything else gets the same `401` text.
+- **Check the partner key without an AI tool**: this asks for the key without showing it and sends it to `curl` on standard input, so it is neither in your shell history nor in the process list:
+
+  ```bash
+   printf 'Partnernøkkel: '; read -rs LB_KEY; echo; printf 'Authorization: Bearer %s\n' "$LB_KEY" | curl -sS -X POST https://www.lettbestilt.no/api/mcp -H @- -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_restaurants","arguments":{}}}'; echo; unset LB_KEY
+  ```
+
+  The answer is either the error above or the list of your restaurants.
+- **Restaurant key errors** come back from the tool, and the AI tool tells you what to do in the partner portal: no restaurant key in the connection (`401 UNAUTHORIZED`; the partner tools, `list_restaurants` and `create_sandbox` still work), a partner key in the restaurant key field, an expired or revoked restaurant key (`401 KEY_EXPIRED` / `401 UNAUTHORIZED`), a test key mixed with a live key, or `INSUFFICIENT_SCOPE` (below). Create the key on the restaurant's **API** tab and add it on the **MCP** tab. Never paste a key into the chat.
+- **`RESTAURANT_NOT_FOUND` for a restaurant `list_restaurants` just showed**: the restaurant keys decide which restaurants the tools reach. The connection reaches only the restaurants it has keys for; with several keys the error lists them in `details.slugs`. Add the key for the restaurant you want on the **MCP** tab (or to `LETTBESTILT_MCP_RESTAURANT_KEY`, separated by commas) and restart the AI tool.
+- **`RESTAURANT_SLUG_REQUIRED`**: the connection has keys for several restaurants. Tell the AI tool which one, or pass `slug`.
 - **`403 SANDBOX_ONLY`**: test orders and attribution checks only run in sandboxes.
 - **`403 SANDBOX_TEST_KEY_REQUIRED`**: `create_sandbox` needs a test partner key.
 - **`403 KEY_ROLE_FORBIDDEN`** from a partner account tool: the partner key was created by a developer, support or read-only member. Reading still works. A team member with the role Partner or Administrator creates a partner key under **Innstillinger → Partnernøkkel (API)**. A rotated key counts as created by the person who rotated it, so a developer who rotates a Partner's key gets `403 KEY_ROLE_FORBIDDEN` on brand, profile and news; LettBestilt Partner shows per key whether it can change the partner's own settings.
